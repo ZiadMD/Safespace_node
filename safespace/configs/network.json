@@ -1,0 +1,7 @@
+{
+    "network": {
+        "server_url": "http://localhost:5000",
+        "heartbeat_interval": 30,
+        "timeout": 10
+    }
+}

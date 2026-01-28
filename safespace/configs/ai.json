@@ -1,0 +1,8 @@
+{
+    "ai": {
+        "model_path": "./models/accident_detection.pt",
+        "confidence_threshold": 0.7,
+        "inference_interval": 0.1,
+        "mock_accidents": false
+    }
+}
