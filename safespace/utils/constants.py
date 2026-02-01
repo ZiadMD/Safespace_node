@@ -2,6 +2,7 @@
 Global constants for the Safespace Node application.
 """
 from pathlib import Path
+import os
 
 # Project Structure
 BASE_DIR = Path(__file__).parent.parent
@@ -36,3 +37,6 @@ EVENT_ROAD_UPDATE = "road_update"
 EVENT_CENTRAL_UNIT_UPDATE = "central_unit_update"
 EVENT_HEARTBEAT = "heartbeat"
 EVENT_ACCIDENT_REPORT = "/api/accident-detected"
+
+# API Keys
+ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY")

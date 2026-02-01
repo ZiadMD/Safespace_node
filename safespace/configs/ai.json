@@ -1,8 +1,15 @@
 {
-    "ai": {
-        "model_path": "./models/accident_detection.pt",
-        "confidence_threshold": 0.7,
-        "inference_interval": 0.1,
-        "mock_accidents": false
+  "ai": {
+    "accident_detection_local": {
+      "model_path": "./models/accident_detection.pt",
+      "model_id": null,
+      "confidence_threshold": 0.7
+    },
+
+    "accident_detection_roboflow": {
+      "model_path": null,
+      "model_id": "zihan-z36um/4",
+      "confidence_threshold": 0.7
     }
+  }
 }
