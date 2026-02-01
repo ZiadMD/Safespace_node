@@ -1,7 +1,7 @@
 {
   "ai": {
     "accident_detection_local": {
-      "model_path": "./models/accident_detection.pt",
+      "model_path": "AI Layer/Models/accident_detection_model.pt",
       "model_id": null,
       "confidence_threshold": 0.7
     },
