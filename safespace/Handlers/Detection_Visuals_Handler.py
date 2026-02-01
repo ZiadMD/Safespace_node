@@ -1,0 +1,1 @@
+# Manges BBox visualizations for detected objects
