@@ -10,6 +10,20 @@
       "model_path": null,
       "model_id": "zihan-z36um/4",
       "confidence_threshold": 0.7
-    }
+    },
+    "tracking": {
+      "tracker": "botsort",
+      "persist": true,
+      "confidence": 0.5,
+      "iou": 0.5,
+      "max_age": 30,
+      "history_length": 50
+    },
+    "processing": {
+      "history_size": 10,
+      "min_confidence": 0.5,
+      "alert_cooldown": 5.0
+    },
+    "alert_classes": ["accident", "crash", "collision", "fire"]
   }
 }
