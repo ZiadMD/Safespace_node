@@ -27,22 +27,3 @@ class ModelLoader:
         except Exception as e:
             self.logger.error(f"Error loading local model: {e}")
             return None
-    
-    def load_roboflow_model(self, model_id: str) -> Model:
-        """
-        Load a model from Roboflow Inference using the provided model ID.
-
-        Args:
-            model_id (str): Roboflow model ID (e.g., 'project-name/version')
-        Returns:
-            Loaded model object or None if loading fails.
-        """
-        self.logger.info(f"Loading Roboflow model with ID: {model_id}")
-        try:
-            model = get_model(model_id=model_id, api_key=ROBOFLOW_API_KEY)
-            self.logger.info("Roboflow model loaded successfully!")
-            return model
-        except Exception as e:
-            self.logger.error(f"Error loading Roboflow model: {e}")
-            return None
-
