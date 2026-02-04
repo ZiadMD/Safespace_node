@@ -4,6 +4,9 @@ IO Manager - Orchestrates Camera and Display handlers.
 import time
 from datetime import datetime
 from typing import Optional, Callable
+from queue import Queue
+from threading import Lock
+from cv2.typing import MatLike
 from Handlers.Camera_Handler import CameraHandler
 from Handlers.Display_Handler import DisplayHandler
 from utils.logger import Logger
@@ -30,6 +33,42 @@ class IOManager:
         self.camera = CameraHandler(camera_conf)
         
         self.display = DisplayHandler(config, on_manual_trigger=on_manual_trigger)
+        
+        # Frame sharing for AI Manager
+        self._latest_frame: Optional[MatLike] = None
+        self._frame_lock = Lock()
+        self._frame_callback: Optional[Callable[[MatLike], None]] = None
+
+    def set_frame_callback(self, callback: Callable[[MatLike], None]):
+        """
+        Register a callback to be invoked when a new frame is available.
+        
+        Args:
+            callback: Function that receives the new frame (used by AI Manager)
+        """
+        self._frame_callback = callback
+
+    def get_latest_frame(self) -> Optional[MatLike]:
+        """
+        Thread-safe method to get the most recent frame.
+        
+        Returns:
+            The latest frame or None if no frame is available.
+        """
+        with self._frame_lock:
+            return self._latest_frame.copy() if self._latest_frame is not None else None
+
+    def _on_new_frame(self, frame: MatLike):
+        """
+        Internal handler called when camera captures a new frame.
+        Updates the latest frame and notifies AI Manager.
+        """
+        with self._frame_lock:
+            self._latest_frame = frame
+        
+        # Notify AI Manager if callback is registered
+        if self._frame_callback:
+            self._frame_callback(frame)
 
     def start(self):
         """Starts the IO components."""
