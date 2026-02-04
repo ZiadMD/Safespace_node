@@ -255,8 +255,6 @@ class LaneWidget(QFrame):
 
 
 if __name__ == "__main__":
-    # Test stub
-    gui = GUIHandler()
-    
-    gui.start()
+
+    pass
 
