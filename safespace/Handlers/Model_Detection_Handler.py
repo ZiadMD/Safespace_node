@@ -9,7 +9,7 @@ class ModelDetectionHandler:
     """Handler for YOLO model detection with automatic GPU/CPU selection."""
 
     def __init__(self):
-        self.logger = Logger.get_logger("ModelDetectionHandler")
+        self.logger = Logger("ModelDetectionHandler")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.logger.info(f"Using device: {self.device}")
 

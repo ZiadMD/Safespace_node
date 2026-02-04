@@ -8,7 +8,7 @@ class ModelLoader:
     """Handler for loading and caching YOLO models with GPU/CPU optimization."""
 
     def __init__(self):
-        self.logger = Logger.get_logger("ModelLoader")
+        self.logger = Logger("ModelLoader")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model_cache = {}
 

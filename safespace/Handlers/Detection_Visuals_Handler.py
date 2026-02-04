@@ -4,7 +4,7 @@ import supervision as sv
 from utils.logger import Logger
 class DetectionVisualsHandler:
     def __init__(self):
-        self.logger = Logger.get_logger("DetectionVisualsHandler")
+        self.logger = Logger("DetectionVisualsHandler")
     
     def visualize_detections(self, frame, detections: sv.Detections):
         """

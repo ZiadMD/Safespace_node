@@ -75,6 +75,10 @@ safespace/logs/
 logs/
 safespace/assets/accidents_images/
 
+safespace/AI Layer/Models/
+safespace/AI Layer/Notebooks/.ipynb_checkpoints/
+safespace/AI Layer/Data/
+
 # Media files
 *.png
 *.jpg
