@@ -73,6 +73,19 @@ Thumbs.db
 safespace/logs/
 *.log
 logs/
+safespace/assets/accidents_images/
+
+# Media files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.mp4
+*.avi
+*.mov
+*.mkv
 
 # OS
 .DS_Store
