@@ -1,0 +1,14 @@
+# Requirements for Laptop/Desktop with NVIDIA GPU (CUDA)
+# Install with: pip install -r requirements-gpu.txt
+#
+# Prerequisites:
+# - NVIDIA GPU with CUDA support
+# - CUDA Toolkit installed (https://developer.nvidia.com/cuda-toolkit)
+# - cuDNN installed (https://developer.nvidia.com/cudnn)
+
+-r requirements.txt
+
+# Deep Learning - CUDA 12.1 (adjust version if needed)
+# For CUDA 11.8: use --index-url https://download.pytorch.org/whl/cu118
+torch --index-url https://download.pytorch.org/whl/cu121
+torchvision --index-url https://download.pytorch.org/whl/cu121

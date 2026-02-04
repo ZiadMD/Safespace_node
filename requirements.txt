@@ -1,5 +1,19 @@
+# Base requirements for SafeSpace Node
+# 
+# For installation instructions based on your platform:
+# - Raspberry Pi (CPU): pip install -r requirements-raspi.txt
+# - Laptop/Desktop with GPU: pip install -r requirements-gpu.txt
+
+# GUI
 PyQt6
-opencv-python-headless
+
+# Computer Vision
+opencv-python
 numpy
+ultralytics
+supervision
+inference
+
+# Networking
 requests
 python-socketio
