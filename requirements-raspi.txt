@@ -1,0 +1,12 @@
+# Requirements for Raspberry Pi (CPU only)
+# Install with: pip install -r requirements-raspi.txt
+
+-r requirements.txt
+
+# Deep Learning - CPU only
+torch --index-url https://download.pytorch.org/whl/cpu
+torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# Use headless OpenCV for better compatibility on Pi
+# Uncomment below and comment opencv-python in requirements.txt if needed
+# opencv-python-headless
