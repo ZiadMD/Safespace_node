@@ -17,6 +17,8 @@ class VideoInputHandler:
         self.logger = Logger("VideoInputHandler")
         self.cap = None
 
+        self.logger.info(f"VideoInputHandler initialized with video: {video_path}")
+
     def start(self) -> bool:
         """Start the video capture."""
         self.cap = cv2.VideoCapture(self.video_path)
