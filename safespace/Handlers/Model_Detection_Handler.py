@@ -1,24 +1,30 @@
 from ultralytics import YOLO
-from inference.core.models.base import Model
-import supervision as sv
 from cv2.typing import MatLike
+import supervision as sv
 import torch
+from utils.logger import Logger
+
 
 class ModelDetectionHandler:
+    """Handler for YOLO model detection with automatic GPU/CPU selection."""
 
-    def yolo_detect(self, model: YOLO, confidence: float, frame: MatLike) -> list:
+    def __init__(self):
+        self.logger = Logger.get_logger("ModelDetectionHandler")
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.logger.info(f"Using device: {self.device}")
+
+    def detect(self, model: YOLO, frame: MatLike, confidence: float = 0.5) -> sv.Detections:
         """
         Perform object detection on a given frame using the YOLO model.
 
         Args:
             model (YOLO): The loaded YOLO model.
-            frame: The input frame/image for detection.
-            confidence (float): Confidence threshold for detections.
+            frame (MatLike): The input frame/image for detection.
+            confidence (float): Confidence threshold for detections (default: 0.5).
 
         Returns:
-            List of detection results.
+            sv.Detections: Supervision Detections object containing bounding boxes,
+                           confidence scores, and class IDs.
         """
-
-        results = model.predict(frame, conf=confidence, verbose=False)
-        detections = results.xyxy[0].cpu().numpy().tolist()  # Convert to list of detections
-        return detections
+        results = model.predict(frame, conf=confidence, device=self.device, verbose=False)
+        return sv.Detections.from_ultralytics(results[0])
