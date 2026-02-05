@@ -1,0 +1,27 @@
+{
+  "models": {
+    "accident_detection": {
+      "type": "yolo",
+      "path": "AI Layer/Models/Car Accident.pt",
+      "confidence": 0.7,
+      "enabled": true,
+      "classes": ["accident", "person", "vehicle"]
+    }
+  },
+
+  "tracking": {
+    "algorithm": "botsort",
+    "persist": true,
+    "confidence": 0.5,
+    "iou_threshold": 0.5,
+    "max_age": 30,
+    "history_length": 50
+  },
+
+  "processing": {
+    "frame_skip": 1,
+    "batch_size": 1,
+    "use_gpu": true,
+    "history_size": 10
+  }
+}

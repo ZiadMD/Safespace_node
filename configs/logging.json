@@ -1,0 +1,8 @@
+{
+    "logging": {
+        "level": "INFO",
+        "rotation": "5MB",
+        "backup_count": 5,
+        "file_logging": true
+    }
+}
