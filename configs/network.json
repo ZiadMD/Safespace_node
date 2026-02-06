@@ -1,6 +1,6 @@
 {
     "network": {
-        "server_url": "https://scarabaeoid-scrofulously-rupert.ngrok-free",
+        "server_url": "https://scarabaeoid-scrofulously-rupert.ngrok-free.dev",
         "heartbeat_interval": 30,
         "timeout": 10
     }

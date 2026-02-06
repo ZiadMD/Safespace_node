@@ -10,6 +10,10 @@ from Managers.Network_Manager import NetworkManager
 from Managers.IO_Manager import IOManager
 from Managers.AI_Manger import AIManager
 
+import cv2
+from datetime import datetime
+from utils.constants import ACCIDENT_IMAGES_DIR
+
 
 def parse_args():
     """Parse command-line arguments."""
@@ -76,7 +80,8 @@ class SafespaceNode:
             self.ai = AIManager(
                 self.config,
                 self.io,
-                on_detection=self._on_ai_detection
+                on_detection=self._on_ai_detection,
+                model_names="accident_detection"
             )
             self.logger.info("AI Manager initialized")
         
@@ -178,9 +183,7 @@ class SafespaceNode:
         Returns:
             Path to saved image or None if failed
         """
-        import cv2
-        from datetime import datetime
-        from utils.constants import ACCIDENT_IMAGES_DIR
+
         
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
