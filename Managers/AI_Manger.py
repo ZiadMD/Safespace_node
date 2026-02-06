@@ -13,7 +13,8 @@ class AIManager:
     """Manages AI model loading, detection, and result processing."""
     
     def __init__(self, config: Config, io_manager: IOManager, 
-                 on_detection: Optional[Callable[[str, sv.Detections, MatLike], None]] = None):
+                 on_detection: Optional[Callable[[str, sv.Detections, MatLike], None]] = None,
+                 model_names: Optional[list[str]] = None):
         """
         Initialize the AI Manager.
         
@@ -21,6 +22,9 @@ class AIManager:
             config: Configuration object
             io_manager: IO Manager for frame access
             on_detection: Optional callback when detections occur (model_name, detections, frame)
+            model_names: Optional list of specific model names to load. 
+                        If None, loads all enabled models from config.
+                        If a single string, it will be converted to a list.
         """
         self.config = config
         self.io_manager = io_manager
@@ -35,19 +39,40 @@ class AIManager:
         # Register for frame updates
         self.io_manager.set_frame_callback(self._process_frame)
         
-        # Load enabled models on init
-        self._load_enabled_models()
+        # Load models based on provided names or config
+        self._load_models(model_names)
 
         self.logger.info("AI Manager initialized")
 
-    def _load_enabled_models(self):
-        """Load all models marked as enabled in config."""
+    def _load_models(self, model_names: Optional[list[str]] = None):
+        """
+        Load models based on provided names or all enabled models from config.
+        
+        Args:
+            model_names: List of model names to load, or None to load all enabled.
+        """
         ai_config = self.config.get("ai", {})
         models_config = ai_config.get("models", {})
         
-        for model_name, model_conf in models_config.items():
-            if model_conf.get("enabled", False):
-                self.load_model(model_name)
+        if model_names is None:
+            # Load all enabled models from config
+            for model_name, model_conf in models_config.items():
+                if model_conf.get("enabled", False):
+                    self.load_model(model_name)
+        else:
+            # Load specific models from the provided list
+            if isinstance(model_names, str):
+                model_names = [model_names]
+            
+            for model_name in model_names:
+                if model_name in models_config:
+                    self.load_model(model_name)
+                else:
+                    self.logger.warning(f"Model '{model_name}' not found in config, skipping")
+
+    def _load_enabled_models(self):
+        """Load all models marked as enabled in config. (Deprecated: use _load_models)"""
+        self._load_models(None)
 
     def load_model(self, model_name: str) -> Optional[Any]:
         """

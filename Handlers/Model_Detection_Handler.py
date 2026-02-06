@@ -27,4 +27,5 @@ class ModelDetectionHandler:
                            confidence scores, and class IDs.
         """
         results = model.predict(frame, conf=confidence, device=self.device, verbose=False)
+        self.logger.info(f"Detection completed with {len(results[0].boxes)} boxes detected.")
         return sv.Detections.from_ultralytics(results[0])

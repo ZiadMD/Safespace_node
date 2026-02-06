@@ -12,7 +12,6 @@ opencv-python
 numpy
 ultralytics
 supervision
-inference
 
 # Networking
 requests

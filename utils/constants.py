@@ -23,7 +23,7 @@ MIN_WINDOW_HEIGHT = 540
 
 # Network Settings
 DEFAULT_HEARTBEAT_INTERVAL = 30
-DEFAULT_SERVER_URL = "https://scarabaeoid-scrofulously-rupert.ngrok-free"
+DEFAULT_SERVER_URL = "https://scarabaeoid-scrofulously-rupert.ngrok-free.dev"
 CONNECTION_TIMEOUT = 10
 
 # Lane Statuses
