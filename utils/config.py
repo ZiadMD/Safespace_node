@@ -37,9 +37,9 @@ class Config:
     def _load_from_env(self):
         """Load configuration from environment variables."""
         if os.environ.get('NODE_ID'):
-            self.config['node']['id'] = os.environ.get('NODE_ID')
+            self.config.setdefault('node', {})['id'] = os.environ.get('NODE_ID')
         if os.environ.get('SERVER_URL'):
-            self.config['network']['server_url'] = os.environ.get('SERVER_URL')
+            self.config.setdefault('network', {})['server_url'] = os.environ.get('SERVER_URL')
 
     def load_from_file(self, path: str):
         """Load configuration from JSON file."""

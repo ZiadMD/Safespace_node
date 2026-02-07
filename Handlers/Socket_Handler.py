@@ -1,17 +1,30 @@
 """
 Socket Handler - Low-level network communication with Central Unit.
+
+Implements the Reporter protocol. Uses Socket.IO for real-time events
+and HTTP POST for accident report uploads with media attachments.
+Includes reconnection logic with exponential backoff.
 """
 import socketio
 import requests
 import os
+import time
 import mimetypes
 from typing import Optional, Dict, Any, Callable
+from utils.logger import Logger
 from utils.constants import (EVENT_ROAD_UPDATE, EVENT_CENTRAL_UNIT_UPDATE, 
                              EVENT_HEARTBEAT, EVENT_ACCIDENT_REPORT)
 
 
 class SocketHandler:
-    """Handles low-level network communication (WebSockets and HTTP POST)."""
+    """Handles low-level network communication (WebSockets and HTTP POST).
+    
+    Implements the Reporter protocol:
+        report(payload, media_paths) -> bool
+        connect() -> bool
+        disconnect() -> None
+        emit_heartbeat(node_id) -> None
+    """
     
     def __init__(self, server_url: str, on_central_unit_update: Optional[Callable] = None):
         """
@@ -22,9 +35,11 @@ class SocketHandler:
             on_central_unit_update: Callback for updates from the Central Unit
         """
         self.server_url = server_url
-        self.sio = socketio.Client()
+        self.sio = socketio.Client(reconnection=True, reconnection_attempts=10,
+                                   reconnection_delay=2, reconnection_delay_max=30)
         self.connected = False
         self.on_central_unit_update = on_central_unit_update
+        self.logger = Logger("SocketHandler")
         
         self._setup_handlers()
 
@@ -33,24 +48,21 @@ class SocketHandler:
         @self.sio.on('connect')
         def on_connect():
             self.connected = True
-            # Safely extract transport name
             transport = "unknown"
             try:
                 transport = self.sio.eio.transport
             except Exception:
                 pass
-            print(f"[Network] Connected to Central Unit at {self.server_url} (Transport: {transport})")
+            self.logger.info(f"Connected to Central Unit at {self.server_url} (Transport: {transport})")
 
         @self.sio.on('disconnect')
         def on_disconnect():
             self.connected = False
-            print("[Network] Disconnected from Central Unit")
+            self.logger.warning("Disconnected from Central Unit")
 
-        # Catch-all for debugging incoming events from Central Unit
         @self.sio.on('*')
         def catch_all(event, data):
-            print(f"[DEBUG] Socket Event Received: '{event}' | Data: {data}")
-            # Route specific events to our handler
+            self.logger.debug(f"Socket Event Received: '{event}' | Data: {data}")
             if event in (EVENT_ROAD_UPDATE, EVENT_CENTRAL_UNIT_UPDATE, "admin_accident_response"):
                 if self.on_central_unit_update:
                     self.on_central_unit_update(data)
@@ -64,20 +76,27 @@ class SocketHandler:
             self.sio.connect(self.server_url)
             return True
         except Exception as e:
-            print(f"[Network] Connection failed: {e}")
+            self.logger.error(f"Connection failed: {e}")
             return False
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         """Disconnect from the server."""
         if self.connected:
-            self.sio.disconnect()
+            try:
+                self.sio.disconnect()
+            except Exception:
+                pass
 
-    def report_accident(self, payload: Dict[str, Any], media_paths: Optional[list] = None) -> bool:
+    def report(self, payload: Dict[str, Any], media_paths: Optional[list] = None) -> bool:
         """
         Send accident report to Central Unit via HTTP POST (multipart/form-data).
+        
+        Implements the Reporter protocol's report() method.
+        Uses context-manager-safe file handles to prevent resource leaks.
         """
         url = f"{self.server_url}{EVENT_ACCIDENT_REPORT}"
         files = []
+        file_handles = []
         
         try:
             if media_paths:
@@ -85,31 +104,40 @@ class SocketHandler:
                     if os.path.exists(path):
                         mime, _ = mimetypes.guess_type(path)
                         mime = mime or 'application/octet-stream'
-                        files.append(('media', (os.path.basename(path), open(path, 'rb'), mime)))
+                        fh = open(path, 'rb')
+                        file_handles.append(fh)
+                        files.append(('media', (os.path.basename(path), fh, mime)))
             
             response = requests.post(url, data=payload, files=files, timeout=15)
             
-            # Close files
-            for _, info in files:
-                info[1].close()
-                
             if response.status_code in (200, 201):
-                print(f"[Network] Accident report successfully posted ({response.status_code})")
+                self.logger.info(f"Accident report posted successfully ({response.status_code})")
                 return True
             
-            print(f"[Network] POST failed: {response.status_code}")
+            self.logger.warning(f"Accident report POST failed: {response.status_code}")
             return False
                 
         except Exception as e:
-            print(f"[Network] Error during report upload: {e}")
-            for _, info in files:
-                info[1].close()
+            self.logger.error(f"Error during report upload: {e}")
             return False
+        finally:
+            # Always close file handles
+            for fh in file_handles:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
 
-    def emit_heartbeat(self, node_id: str):
+    # Legacy alias for backward compatibility
+    def report_accident(self, payload: Dict[str, Any], media_paths: Optional[list] = None) -> bool:
+        """Alias for report() — kept for backward compatibility."""
+        return self.report(payload, media_paths)
+
+    def emit_heartbeat(self, node_id: str) -> None:
         """Send a heartbeat event to the server."""
         if self.connected:
             try:
                 self.sio.emit(EVENT_HEARTBEAT, {'nodeId': str(node_id), 'status': 'active'})
             except Exception as e:
-                raise e
+                self.logger.error(f"Heartbeat emit failed: {e}")
+                raise

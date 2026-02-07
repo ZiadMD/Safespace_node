@@ -1,18 +1,23 @@
+"""
+Safespace Node — Entry Point
+
+Pipeline + Event Bus architecture:
+    CaptureStage → [frame_queue] → InferenceStage → [detection_queue] → DecisionStage
+                                                                            ↕ EventBus
+                                                            NetworkWorker ← AccidentDetected
+                                                          DisplaySubscriber ← DisplayUpdate
+"""
 import sys
-import os
 import signal
 import argparse
-from typing import Dict, Any
+from queue import Queue
+from threading import Event
 
 from utils.config import Config
 from utils.logger import Logger
-from Managers.Network_Manager import NetworkManager
-from Managers.IO_Manager import IOManager
-from Managers.AI_Manger import AIManager
 
-import cv2
-from datetime import datetime
-from utils.constants import ACCIDENT_IMAGES_DIR
+from core.bus import EventBus
+from core.events import ManualTrigger, ShutdownRequested
 
 
 def parse_args():
@@ -39,56 +44,152 @@ def parse_args():
 
 class SafespaceNode:
     """
-    Safespace Node Orchestrator.
-    Manages the lifecycle and communication between Network, IO, and AI managers.
-    """
+    Safespace Node Orchestrator (Pipeline + Event Bus architecture).
     
+    Wires together:
+      - Pipeline stages (Capture → Inference → Decision) via bounded Queues
+      - Event bus subscribers (NetworkWorker, DisplaySubscriber) via EventBus
+      - Display (PyQt6, blocks on main thread)
+    
+    No direct callbacks between components. No shared mutable state.
+    """
+
     def __init__(self, video_path: str = None, offline: bool = False, enable_ai: bool = True):
-        # 1. Load Granular Configuration
+        # ── 1. Foundation ────────────────────────────────────────────
         self.config = Config()
+        Logger.setup(self.config.get('logging', {}))
+        self.logger = Logger("SafespaceNode")
+        self.logger.info("Initializing Safespace Node (Pipeline + Event Bus)...")
+
         self.offline = offline
         self.enable_ai = enable_ai
-        
-        # 2. Setup Global Logging
-        Logger.setup(self.config.get('logging', {}))
-        
-        self.logger = Logger("SafespaceNode")
-        self.logger.info("Initializing Safespace Node...")
-        
+        self.video_path = video_path
+
+        # Shared shutdown signal — replaces os._exit()
+        self.stop_event = Event()
+
+        # Central event bus — replaces all callbacks
+        self.bus = EventBus()
+
+        # ── 2. Bounded Queues (pipeline backpressure) ────────────────
+        self.frame_queue = Queue(maxsize=2)      # Drop-on-full in CaptureStage
+        self.detection_queue = Queue(maxsize=5)   # Buffer between inference & decision
+
+        # ── 3. Frame Source (Camera or Video) ────────────────────────
         if video_path:
+            from Handlers.Video_Input_Handler import VideoInputHandler
+            self.frame_source = VideoInputHandler(video_path)
+            self.source_type = "video"
             self.logger.info(f"Video test mode: {video_path}")
-        if offline:
-            self.logger.info("Offline mode enabled")
-        if not enable_ai:
-            self.logger.info("AI detection disabled")
-        
-        # 3. Initialize Managers
-        self.network = NetworkManager(
-            self.config, 
-            on_central_unit_instruction=self._on_central_unit_instruction
-        )
-        
-        self.io = IOManager(
-            self.config, 
-            on_manual_trigger=self._on_manual_accident_report,
-            video_path=video_path
-        )
-        
-        # 4. Initialize AI Manager (optional)
-        self.ai = None
+        else:
+            from Handlers.Camera_Handler import CameraHandler
+            camera_conf = self.config.get('camera', {})
+            self.frame_source = CameraHandler(camera_conf)
+            self.source_type = "camera"
+
+        # ── 4. AI Models (optional) ──────────────────────────────────
+        self.models = {}
+        self.detection_handler = None
         if enable_ai:
-            self.ai = AIManager(
-                self.config,
-                self.io,
-                on_detection=self._on_ai_detection,
-                model_names="accident_detection"
+            self._load_ai_models()
+        else:
+            self.logger.info("AI detection disabled")
+
+        # ── 5. Pipeline Stages ───────────────────────────────────────
+        from core.stages.capture import CaptureStage
+        fps = self.config.get_int('camera.fps', 30)
+        loop_video = self.config.get_bool('camera.loop_video', True)
+
+        self.capture_stage = CaptureStage(
+            source=self.frame_source,
+            out_queue=self.frame_queue,
+            stop_event=self.stop_event,
+            fps=fps,
+            loop_video=loop_video,
+            source_type=self.source_type,
+        )
+
+        self.inference_stage = None
+        if enable_ai and self.models:
+            from core.stages.inference import InferenceStage
+            self.inference_stage = InferenceStage(
+                in_queue=self.frame_queue,
+                out_queue=self.detection_queue,
+                stop_event=self.stop_event,
+                models=self.models,
+                detection_handler=self.detection_handler,
             )
-            self.logger.info("AI Manager initialized")
-        
-        # Lifecycle / Flow Management
-        self.running = False
-        self.awaiting_confirmation = False
+
+        from core.stages.decision import DecisionStage
+        self.decision_stage = DecisionStage(
+            detection_queue=self.detection_queue,
+            bus=self.bus,
+            stop_event=self.stop_event,
+            config=self.config,
+        )
+
+        # ── 6. Network Worker (bus subscriber) ───────────────────────
+        self.network_worker = None
+        if not offline:
+            from core.network_worker import NetworkWorker
+            self.network_worker = NetworkWorker(
+                config=self.config,
+                bus=self.bus,
+                stop_event=self.stop_event,
+            )
+        else:
+            self.logger.info("Offline mode — skipping network")
+
+        # ── 7. Display + Display Subscriber ──────────────────────────
+        from Handlers.Display_Handler import DisplayHandler
+        from core.display_subscriber import DisplaySubscriber
+
+        self.display = DisplayHandler(
+            config=self.config,
+            on_manual_trigger=self._on_manual_trigger,
+            stop_event=self.stop_event,
+        )
+        self.display_subscriber = DisplaySubscriber(
+            bus=self.bus,
+            display=self.display,
+        )
+
+        # ── 8. OS Signals ────────────────────────────────────────────
         self._setup_signals()
+        self.logger.info("Safespace Node initialized successfully")
+
+    def _load_ai_models(self):
+        """Load YOLO models from config."""
+        from Handlers.Model_Loader_Handler import ModelLoader
+        from Handlers.Model_Detection_Handler import ModelDetectionHandler
+
+        loader = ModelLoader()
+        self.detection_handler = ModelDetectionHandler()
+
+        ai_config = self.config.get("ai", {})
+        models_config = ai_config.get("models", {})
+
+        for model_name, model_conf in models_config.items():
+            if not model_conf.get("enabled", False):
+                continue
+
+            model_path = model_conf.get("path")
+            if not model_path:
+                continue
+
+            model = loader.load_model(model_path)
+            if model:
+                self.models[model_name] = {
+                    "model": model,
+                    "confidence": model_conf.get("confidence", 0.5),
+                    "classes": model_conf.get("classes", []),
+                }
+                self.logger.info(f"Loaded model: {model_name}")
+
+        if self.models:
+            self.logger.info(f"AI ready with {len(self.models)} model(s)")
+        else:
+            self.logger.warning("No AI models loaded")
 
     def _setup_signals(self):
         """Handle OS signals for graceful shutdown."""
@@ -98,148 +199,70 @@ class SafespaceNode:
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
-    def start(self):
-        """Start the node services and enter event loop."""
-        self.logger.info("Starting Safespace Node services...")
-        
-        if not self.offline:
-            if not self.network.start():
-                self.logger.warning("Network starting failed - Node running in offline mode")
-        else:
-            self.logger.info("Skipping network connection (offline mode)")
+    def _on_manual_trigger(self):
+        """Called by Qt keyPressEvent — publishes ManualTrigger to the bus."""
+        self.bus.publish(ManualTrigger())
 
-        self.running = True
-        
+    def start(self):
+        """Start all pipeline stages, workers, and enter the Qt event loop."""
+        self.logger.info("Starting Safespace Node services...")
+
+        # Start network (non-blocking)
+        if self.network_worker:
+            if not self.network_worker.start():
+                self.logger.warning("Network failed — running in offline mode")
+
+        # Start pipeline stages (background threads)
+        self.capture_stage.start()
+        if self.inference_stage:
+            self.inference_stage.start()
+        self.decision_stage.start()
+
+        self.logger.info("Pipeline stages running")
+
         try:
-            self.io.start()
+            # Display blocks on the main thread (Qt event loop)
+            self.display.start()
         except Exception as e:
-            self.logger.error(f"IO Runtime error: {e}")
+            self.logger.error(f"Display error: {e}")
         finally:
+            # Window closed or error — trigger full shutdown
             self.stop()
 
     def stop(self):
-        """Cleanly shutdown all services."""
-        if not self.running:
-            return
-            
-        self.running = False
+        """Gracefully shutdown all components."""
+        if self.stop_event.is_set():
+            return  # Already shutting down
+
+        self.stop_event.set()
         self.logger.info("Stopping Safespace Node...")
-        
-        self.network.stop()
-        self.io.stop()
-        
-        self.logger.info("Safespace Node stopped successfully.")
 
-    def _on_manual_accident_report(self):
-        """Callback for local manual trigger (e.g. Spacebar)."""
-        if self.awaiting_confirmation:
-            self.logger.warning("Ignored: Node is already awaiting action from the Central Unit.")
-            return
+        # Stop display
+        if self.display:
+            self.display.stop()
 
-        self.logger.info("User triggered a manual accident report. Transitioning to AWAITING state...")
-        self.awaiting_confirmation = True
-        
-        # 1. Capture snapshot from the active camera
-        snapshot_path = self.io.get_accident_snapshot()
-        media = [snapshot_path] if snapshot_path else None
-        
-        # 2. Report to central unit through the network manager
-        self.network.report_accident(lane_number="1", media=media)
+        # Stop network
+        if self.network_worker:
+            self.network_worker.stop()
 
-    def _on_ai_detection(self, model_name: str, detections, frame):
-        """
-        Callback for AI detections (e.g., accident detected by model).
-        
-        Args:
-            model_name: Name of the model that made the detection
-            detections: Detection results from supervision
-            frame: The frame where detection occurred
-        """
-        if self.awaiting_confirmation:
-            self.logger.debug(f"AI detection ignored: already awaiting confirmation")
-            return
-        
-        self.logger.info(f"AI Detection from '{model_name}': {len(detections)} object(s) detected")
-        
-        # Handle accident detection specifically
-        if 'accident' in model_name.lower():
-            self.logger.warning(f"Accident detected by AI model '{model_name}'!")
-            self.awaiting_confirmation = True
-            
-            # Save snapshot of the detection frame
-            snapshot_path = self._save_ai_detection_snapshot(frame)
-            media = [snapshot_path] if snapshot_path else None
-            
-            # Report to central unit
-            self.network.report_accident(lane_number="1", media=media, ai_detected=True)
+        # Pipeline stages are daemon threads — they'll check stop_event and exit
+        # But we join them for clean shutdown
+        for stage in [self.capture_stage, self.inference_stage, self.decision_stage]:
+            if stage and stage.is_alive():
+                stage.join(timeout=2.0)
 
-    def _save_ai_detection_snapshot(self, frame) -> str:
-        """
-        Save a detection frame to disk.
-        
-        Args:
-            frame: The frame to save (MatLike/numpy array)
-            
-        Returns:
-            Path to saved image or None if failed
-        """
+        # Clean up event bus
+        self.bus.clear()
 
-        
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"ai_detection_{timestamp}.jpg"
-            save_path = str(ACCIDENT_IMAGES_DIR / filename)
-            
-            ACCIDENT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-            if cv2.imwrite(save_path, frame):
-                self.logger.info(f"Saved AI detection snapshot: {save_path}")
-                return save_path
-        except Exception as e:
-            self.logger.error(f"Failed to save AI detection snapshot: {e}")
-        return None
-
-    def _on_central_unit_instruction(self, data: Dict[str, Any]):
-        """Callback for incoming road state updates from Central Unit."""
-        # Instruction received: reset the 'awaiting' flag
-        if self.awaiting_confirmation:
-            self.logger.info("Received instruction from Central Unit. Resolving AWAITING state.")
-            self.awaiting_confirmation = False
-
-        try:
-            self.logger.info(f"Processing Central Unit Instruction: {data}")
-            
-            # 1. Check for Accident State
-            is_accident = data.get('isAccident')
-            
-            if is_accident is False:
-                self.logger.info("Central Unit dismissed/cleared alert. Resetting display.")
-                self.io.reset_display()
-                return
-
-            if is_accident is True:
-                self.io.toggle_alert(True)
-
-            # 2. Update Speed Limit
-            speed = data.get('speedLimit') or data.get('speed_limit')
-            if speed is not None:
-                self.io.update_speed(int(speed))
-
-            # 3. Update Lane States
-            lanes = data.get('laneStates') or data.get('lanes')
-            if isinstance(lanes, list):
-                for i, status in enumerate(lanes):
-                    self.io.update_status(i, status)
-                    
-        except Exception as e:
-            self.logger.error(f"Error processing central unit instruction: {e}")
+        self.logger.info("Safespace Node stopped successfully")
 
 
 if __name__ == "__main__":
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     args = parse_args()
+
     node = SafespaceNode(
-        video_path=args.video, 
+        video_path=args.video,
         offline=args.offline,
-        enable_ai=not args.no_ai
+        enable_ai=not args.no_ai,
     )
     node.start()

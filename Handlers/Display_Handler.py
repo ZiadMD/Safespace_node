@@ -1,10 +1,12 @@
-"""
-Display Handler - Manages the Safespace Node Graphical User Interface.
-Professional dark-themed UI using PyQt6.
+"""Display Handler - Manages the Safespace Node Graphical User Interface.
+
+Subscribes to DisplayUpdate events via the event bus for thread-safe updates.
+No longer calls sys.exit/os._exit — uses a shared shutdown_event for clean lifecycle.
 """
 import sys
 from pathlib import Path
 from typing import Optional, Callable
+from threading import Event as ThreadEvent
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QFrame, QSizePolicy)
 from PyQt6.QtSvgWidgets import QSvgWidget
@@ -16,24 +18,39 @@ from utils.constants import (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
 
 
 class DisplayHandler:
-    """Orchestrator for the PyQt6 application and main window."""
+    """Orchestrator for the PyQt6 application and main window.
     
-    def __init__(self, config, on_manual_trigger: Optional[Callable] = None):
+    Subscribes to DisplayUpdate events from the bus for thread-safe updates.
+    Uses a shared stop_event for clean shutdown instead of sys.exit/os._exit.
+    """
+    
+    def __init__(self, config, on_manual_trigger: Optional[Callable] = None,
+                 stop_event: Optional[ThreadEvent] = None):
         """
         Initialize the display system.
         
         Args:
             config: Structured NodeConfig object
             on_manual_trigger: Callback for user interactions (e.g. spacebar)
+            stop_event: Shared threading.Event to signal shutdown on window close
         """
         self.config = config
+        self.stop_event = stop_event
         self.app = QApplication(sys.argv)
-        self.window = MainWindow(config, on_manual_trigger=on_manual_trigger)
+        self.window = MainWindow(config, on_manual_trigger=on_manual_trigger,
+                                 stop_event=stop_event)
 
     def start(self):
-        """Starts the GUI event loop. This call blocks."""
+        """Starts the GUI event loop. This call blocks until window is closed."""
         self.window.show()
-        sys.exit(self.app.exec())
+        self.app.exec()  # No sys.exit — returns cleanly when window closes
+
+    def stop(self):
+        """Programmatically close the Qt window and quit the app."""
+        if self.window:
+            self.window.close()
+        if self.app:
+            self.app.quit()
 
     def update_lane_status(self, lane_index: int, status: str):
         """Thread-safe update of a specific lane sign."""
@@ -61,10 +78,12 @@ class MainWindow(QMainWindow):
     set_accident_signal = pyqtSignal(bool)
     reset_display_signal = pyqtSignal()
 
-    def __init__(self, config, on_manual_trigger: Optional[Callable] = None):
+    def __init__(self, config, on_manual_trigger: Optional[Callable] = None,
+                 stop_event: Optional[ThreadEvent] = None):
         super().__init__()
         self.config = config
         self.on_manual_trigger = on_manual_trigger
+        self.stop_event = stop_event
         
         self.setProperty("class", "safespace-main")
         self._init_ui()
@@ -190,6 +209,12 @@ class MainWindow(QMainWindow):
     def set_accident_alert(self, active):
         """Toggle visibility of the accident warning."""
         self.accident_banner.setVisible(active)
+
+    def closeEvent(self, event):
+        """Signal shutdown when the window is closed (instead of os._exit)."""
+        if self.stop_event:
+            self.stop_event.set()
+        super().closeEvent(event)
 
     def keyPressEvent(self, event):
         """Bridge hardware keys (Spacebar) to reporting logic."""

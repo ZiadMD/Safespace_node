@@ -94,7 +94,7 @@ class NetworkManager:
             'nodeId': str(node_id),
             'lat': str(location.get('lat', '0.0')),
             'long': str(location.get('long', '0.0')),
-            'lanNumber': str(lane_number)
+            'laneNumber': str(lane_number)
         }
         
         self.logger.info(f"Reporting accident for lane {lane_number}...")

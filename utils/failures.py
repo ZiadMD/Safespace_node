@@ -44,36 +44,52 @@ class FailureManager:
         
         self.failures: Dict[str, List[float]] = {}
         self.history: List[SafespaceError] = []
+        self._max_history = 100  # Cap to prevent unbounded memory growth
+        self._lock = __import__('threading').Lock()
 
     def record_failure(self, error: Exception):
         """
-        Record a failure incident.
+        Record a failure incident (thread-safe).
         
         Args:
             error: The exception that occurred.
         """
-        error_type = type(error).__name__
-        now = time.time()
-        
-        if error_type not in self.failures:
-            self.failures[error_type] = []
+        with self._lock:
+            error_type = type(error).__name__
+            now = time.time()
             
-        self.failures[error_type].append(now)
-        
-        # Log the failure
-        if isinstance(error, SafespaceError):
-            self.history.append(error)
-            msg = f"Failure detected: {error_type} - {error.message}"
-            if error.critical:
-                self.logger.error(f"CRITICAL: {msg}")
+            if error_type not in self.failures:
+                self.failures[error_type] = []
+                
+            self.failures[error_type].append(now)
+            
+            # Prune old entries beyond the time window
+            cutoff = now - self.window_seconds
+            self.failures[error_type] = [
+                t for t in self.failures[error_type] if t > cutoff
+            ]
+            
+            # Log the failure
+            if isinstance(error, SafespaceError):
+                self.history.append(error)
+                msg = f"Failure detected: {error_type} - {error.message}"
+                if error.critical:
+                    self.logger.error(f"CRITICAL: {msg}")
+                else:
+                    self.logger.warning(msg)
             else:
-                self.logger.warning(msg)
-        else:
-            self.logger.error(f"Unexpected failure: {error_type} - {str(error)}")
+                self.logger.error(f"Unexpected failure: {error_type} - {str(error)}")
 
-        # Check if threshold exceeded
-        if self.is_threshold_exceeded(error_type):
-            self.logger.warning(f"Resilience Alert: Failure '{error_type}' exceeded threshold ({self.threshold} in {self.window_seconds}s).")
+            # Cap history to prevent memory leak
+            if len(self.history) > self._max_history:
+                self.history = self.history[-self._max_history:]
+
+            # Check if threshold exceeded
+            if len(self.failures.get(error_type, [])) >= self.threshold:
+                self.logger.warning(
+                    f"Resilience Alert: '{error_type}' exceeded threshold "
+                    f"({self.threshold} in {self.window_seconds}s)"
+                )
 
     def is_threshold_exceeded(self, error_type: str) -> bool:
         """Check if a specific error type has exceeded the frequency threshold."""
