@@ -39,6 +39,11 @@ def parse_args():
         action='store_true',
         help='Disable AI detection (run without model inference)'
     )
+    parser.add_argument(
+        '--show-frames',
+        action='store_true',
+        help='Open a live viewer window showing camera frames and AI detections'
+    )
     return parser.parse_args()
 
 
@@ -54,7 +59,8 @@ class SafespaceNode:
     No direct callbacks between components. No shared mutable state.
     """
 
-    def __init__(self, video_path: str = None, offline: bool = False, enable_ai: bool = True):
+    def __init__(self, video_path: str = None, offline: bool = False,
+                 enable_ai: bool = True, show_frames: bool = False):
         # ── 1. Foundation ────────────────────────────────────────────
         self.config = Config()
         Logger.setup(self.config.get('logging', {}))
@@ -64,6 +70,7 @@ class SafespaceNode:
         self.offline = offline
         self.enable_ai = enable_ai
         self.video_path = video_path
+        self.show_frames = show_frames
 
         # Shared shutdown signal — replaces os._exit()
         self.stop_event = Event()
@@ -74,6 +81,7 @@ class SafespaceNode:
         # ── 2. Bounded Queues (pipeline backpressure) ────────────────
         self.frame_queue = Queue(maxsize=2)      # Drop-on-full in CaptureStage
         self.detection_queue = Queue(maxsize=5)   # Buffer between inference & decision
+        self.viewer_queue = Queue(maxsize=2) if show_frames else None
 
         # ── 3. Frame Source (Camera or Video) ────────────────────────
         if video_path:
@@ -112,13 +120,25 @@ class SafespaceNode:
         self.inference_stage = None
         if enable_ai and self.models:
             from core.stages.inference import InferenceStage
+            from Handlers.Detection_Visuals_Handler import DetectionVisualsHandler
+
+            # Visuals handler for annotating frames (only needed when viewer is active)
+            visuals = DetectionVisualsHandler() if show_frames else None
+
             self.inference_stage = InferenceStage(
                 in_queue=self.frame_queue,
                 out_queue=self.detection_queue,
                 stop_event=self.stop_event,
                 models=self.models,
                 detection_handler=self.detection_handler,
+                viewer_queue=self.viewer_queue,
+                visuals_handler=visuals,
             )
+
+        # Viewer queue routing: InferenceStage pushes annotated frames when
+        # it exists; otherwise CaptureStage pushes raw frames as a fallback.
+        if show_frames and self.viewer_queue is not None and self.inference_stage is None:
+            self.capture_stage.viewer_queue = self.viewer_queue
 
         from core.stages.decision import DecisionStage
         self.decision_stage = DecisionStage(
@@ -154,6 +174,13 @@ class SafespaceNode:
             display=self.display,
         )
 
+        # ── 7b. Frame Viewer (optional, --show-frames) ──────────────
+        self.frame_viewer = None
+        if show_frames and self.viewer_queue is not None:
+            from Handlers.Frame_Viewer_Handler import FrameViewerHandler
+            self.frame_viewer = FrameViewerHandler(self.viewer_queue)
+            self.logger.info("Frame viewer window enabled")
+
         # ── 8. OS Signals ────────────────────────────────────────────
         self._setup_signals()
         self.logger.info("Safespace Node initialized successfully")
@@ -166,8 +193,7 @@ class SafespaceNode:
         loader = ModelLoader()
         self.detection_handler = ModelDetectionHandler()
 
-        ai_config = self.config.get("ai", {})
-        models_config = ai_config.get("models", {})
+        models_config = self.config.get("models", {})
 
         for model_name, model_conf in models_config.items():
             if not model_conf.get("enabled", False):
@@ -220,6 +246,10 @@ class SafespaceNode:
 
         self.logger.info("Pipeline stages running")
 
+        # Show the frame viewer window (must happen before app.exec() blocks)
+        if self.frame_viewer:
+            self.frame_viewer.show()
+
         try:
             # Display blocks on the main thread (Qt event loop)
             self.display.start()
@@ -240,6 +270,10 @@ class SafespaceNode:
         # Stop display
         if self.display:
             self.display.stop()
+
+        # Stop frame viewer
+        if self.frame_viewer:
+            self.frame_viewer.stop()
 
         # Stop network
         if self.network_worker:
@@ -264,5 +298,6 @@ if __name__ == "__main__":
         video_path=args.video,
         offline=args.offline,
         enable_ai=not args.no_ai,
+        show_frames=args.show_frames,
     )
     node.start()

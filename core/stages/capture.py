@@ -5,6 +5,7 @@ Runs in its own thread. Uses put_nowait() so that if the inference stage
 is busy, stale frames are dropped (bounded queue backpressure).
 """
 import time
+import cv2
 from queue import Queue, Full
 from threading import Thread, Event
 from typing import Optional
@@ -30,6 +31,7 @@ class CaptureStage(Thread):
         fps: int = 30,
         loop_video: bool = True,
         source_type: str = "unknown",
+        viewer_queue: Optional[Queue] = None,
     ):
         """
         Args:
@@ -39,6 +41,8 @@ class CaptureStage(Thread):
             fps: Target frame rate for capture loop timing.
             loop_video: If True and source is a video file, restart on EOF.
             source_type: "camera" or "video" — attached to Frame metadata.
+            viewer_queue: Optional bounded queue for the frame viewer window.
+                          Used only when AI inference is disabled (no InferenceStage).
         """
         super().__init__(name="CaptureStage", daemon=True)
         self.source = source
@@ -47,6 +51,7 @@ class CaptureStage(Thread):
         self.fps = fps
         self.loop_video = loop_video
         self.source_type = source_type
+        self.viewer_queue: Optional[Queue] = viewer_queue
         self.logger = Logger("CaptureStage")
 
     def run(self) -> None:
@@ -88,6 +93,20 @@ class CaptureStage(Thread):
             except Full:
                 # Queue is full — drop this frame (natural backpressure)
                 pass
+
+            # Forward raw frame to the viewer window (when no InferenceStage)
+            if self.viewer_queue is not None:
+                try:
+                    tagged = raw_frame.copy()
+                    cv2.putText(tagged, "AI: OFF", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                (0, 0, 0), 3, cv2.LINE_AA)
+                    cv2.putText(tagged, "AI: OFF", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                (0, 0, 200), 2, cv2.LINE_AA)
+                    self.viewer_queue.put_nowait(tagged)
+                except Full:
+                    pass  # Viewer is behind — drop
 
             # Precise frame-rate timing (subtract processing time)
             elapsed = time.monotonic() - loop_start

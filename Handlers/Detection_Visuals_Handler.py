@@ -1,39 +1,48 @@
-# Manges BBox visualizations for detected objects
-import cv2
+"""Detection Visuals Handler — draws bounding boxes and labels on frames.
+
+Uses supervision's BoxAnnotator + LabelAnnotator (modern API).
+Annotators are created once and reused for every frame.
+"""
+import numpy as np
 import supervision as sv
 from utils.logger import Logger
+
+
 class DetectionVisualsHandler:
-    def __init__(self):
+    """Annotates OpenCV frames with detection bounding boxes and labels."""
+
+    def __init__(self, thickness: int = 2, text_scale: float = 0.5, text_thickness: int = 1):
         self.logger = Logger("DetectionVisualsHandler")
-    
-    def visualize_detections(self, frame, detections: sv.Detections):
+        self.box_annotator = sv.BoxAnnotator(thickness=thickness)
+        self.label_annotator = sv.LabelAnnotator(
+            text_scale=text_scale,
+            text_thickness=text_thickness,
+        )
+
+    def visualize_detections(self, frame: np.ndarray, detections: sv.Detections) -> np.ndarray:
         """
         Draw bounding boxes and labels on the frame for the given detections.
 
         Args:
-            frame (np.ndarray): The input image/frame to draw on.
-            detections (sv.Detections): The detections to visualize.
+            frame: The input BGR image/frame to draw on (will be copied).
+            detections: The detections to visualize.
+
         Returns:
-            the frame with visualized detections.
+            A new frame with visualized detections.
         """
+        annotated = frame.copy()
 
-        box_annotator = sv.BoxAnnotator(
-            thickness=2,
-            text_thickness=1,
-            text_scale=0.5
+        # Build labels from numpy arrays (modern supervision API)
+        labels = []
+        for i in range(len(detections)):
+            class_id = int(detections.class_id[i]) if detections.class_id is not None else "?"
+            conf = float(detections.confidence[i]) if detections.confidence is not None else 0.0
+            labels.append(f"{class_id}: {conf:.2f}")
+
+        annotated = self.box_annotator.annotate(scene=annotated, detections=detections)
+        annotated = self.label_annotator.annotate(
+            scene=annotated, detections=detections, labels=labels
         )
 
-        labels = [
-            f"{detection.class_id}: {detection.confidence:.2f}"
-            for detection in detections
-        ]
-
-        frame = box_annotator.annotate(
-            scene=frame,
-            detections=detections,
-            labels=labels
-        )
-
-        self.logger.info(f"Visualized {len(detections)} detections on frame.")
-
-        return frame
+        self.logger.debug(f"Visualized {len(detections)} detections on frame.")
+        return annotated
