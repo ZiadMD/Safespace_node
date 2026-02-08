@@ -13,6 +13,7 @@ from Handlers.Display_Handler import DisplayHandler
 from utils.logger import Logger
 from utils.config import Config
 from utils.constants import ACCIDENT_IMAGES_DIR
+from PyQt6.QtCore import QTimer
 
 
 class IOManager:
@@ -100,6 +101,10 @@ class IOManager:
             if not self.input_handler.start():
                 self.logger.warning("Camera failed to start, proceeding in display-only mode")
             
+        # START SYSTEM STATS TIMER ← ADD THIS
+        if not self.video_path and self.camera:
+            self._start_stats_timer()
+        
         # Start display (blocks)
         self.display.start()
 
@@ -183,3 +188,17 @@ class IOManager:
         
     def reset_display(self):
         self.display.reset_display()
+
+    def _start_stats_timer(self):
+        """Start a timer to periodically send system stats to display."""
+        def update_stats():
+            if self.camera and hasattr(self.camera, 'get_system_metrics'):
+                metrics = self.camera.get_system_metrics()
+                if metrics:
+                    self.display.window.update_stats_signal.emit(metrics)
+    
+        # This timer runs in the display's Qt event loop
+        from PyQt6.QtCore import QTimer
+        self.stats_timer = QTimer()
+        self.stats_timer.timeout.connect(update_stats)
+        self.stats_timer.start(1000)  # Update every 1 second

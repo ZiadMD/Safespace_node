@@ -7,6 +7,7 @@ import time
 import numpy as np
 from typing import Optional, Callable
 from utils.logger import Logger
+from utils.system_monitor import SystemMonitor
 
 try:
     from picamera2 import Picamera2
@@ -44,6 +45,7 @@ class CameraHandler:
         self.thread: Optional[threading.Thread] = None
         self.latest_frame = None
         self.frame_lock = threading.Lock()
+        self.system_monitor = SystemMonitor()
         self.ready = False
         
         if not PICAMERA_AVAILABLE:
@@ -185,6 +187,10 @@ class CameraHandler:
         
         frame_interval = 1.0 / fps
         empty_frame_count = 0
+
+        with self.frame_lock:
+            self.system_monitor.frame.copy()
+        self.system_monitor.update_frame()                              
         
         while self.active:
             try:
@@ -243,3 +249,10 @@ class CameraHandler:
                 self.logger.warning(f"Error during camera cleanup: {e}")
             self.picam2 = None
         self.ready = False
+    
+    def get_system_metrics(self):
+        """Get current system performance metrics."""
+        if hasattr(self, 'system_monitor'):
+         return self.system_monitor.get_metrics()
+        return None
+

@@ -8,7 +8,11 @@ from typing import Optional, Callable
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QFrame, QSizePolicy)
 from PyQt6.QtSvgWidgets import QSvgWidget
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
+from inflect import unit
+from matplotlib.pyplot import title
+from torch import layout
+from torch import layout
 from utils.constants import (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, 
                              ASPECT_RATIO, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT,
                              LANE_STATUS_UP, LANE_STATUS_BLOCKED, 
@@ -60,6 +64,7 @@ class MainWindow(QMainWindow):
     update_speed_signal = pyqtSignal(int)
     set_accident_signal = pyqtSignal(bool)
     reset_display_signal = pyqtSignal()
+    update_stats_signal = pyqtSignal(dict)  
 
     def __init__(self, config, on_manual_trigger: Optional[Callable] = None):
         super().__init__()
@@ -125,6 +130,13 @@ class MainWindow(QMainWindow):
         
         self.set_default_state()
 
+        # ADD THIS - Timer to update system stats every second
+        self.stats_timer = QTimer()
+        self.stats_timer.timeout.connect(self.update_system_stats)
+        self.stats_timer.start(1000)  # Update every 1000ms (1 second)
+        self.update_stats_signal.connect(self._update_stats_ui)
+
+
     def _setup_signals(self):
         """Connect thread-safe signals to internal UI methods."""
         self.update_lane_signal.connect(self.update_lane)
@@ -133,11 +145,31 @@ class MainWindow(QMainWindow):
         self.reset_display_signal.connect(self.set_default_state)
 
     def _add_speed_labels(self, layout):
-        """Helper to build the speed telemetry row."""
+        """Helper to build the speed and system metrics row."""
+       # Left side - System Stats
+        stats_container = QWidget()
+        stats_layout = QVBoxLayout(stats_container)
+        stats_layout.setSpacing(5)
+    
+        self.fps_label = QLabel("FPS: --")
+        self.fps_label.setStyleSheet("color: #00FF88; font-size: 24px; font-weight: 600;")
+        stats_layout.addWidget(self.fps_label)
+    
+        self.cpu_label = QLabel("CPU: --")
+        self.cpu_label.setStyleSheet("color: #FFD700; font-size: 24px; font-weight: 600;")
+        stats_layout.addWidget(self.cpu_label)
+    
+        self.memory_label = QLabel("MEM: --")
+        self.memory_label.setStyleSheet("color: #FF6B6B; font-size: 24px; font-weight: 600;")
+        stats_layout.addWidget(self.memory_label)
+    
+        layout.addWidget(stats_container, stretch=1, alignment=Qt.AlignmentFlag.AlignLeft)
+    
+        # Center - Speed Limit (existing code)
         title = QLabel("SPEED LIMIT")
         title.setStyleSheet("color: white; font-size: 38px; font-weight: 200; letter-spacing: 4px;")
         layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignRight)
-        
+    
         self.speed_label = QLabel("0")
         self.speed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.speed_label.setStyleSheet("""
@@ -146,7 +178,7 @@ class MainWindow(QMainWindow):
             min-height: 120px; max-height: 120px; min-width: 120px; max-width: 120px;
         """)
         layout.addWidget(self.speed_label, stretch=0)
-        
+    
         unit = QLabel("km/h")
         unit.setStyleSheet("color: #888888; font-size: 32px; font-weight: 300;")
         layout.addWidget(unit, stretch=1, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -161,6 +193,22 @@ class MainWindow(QMainWindow):
         """)
         banner.hide()
         return banner
+    
+    def _update_stats_ui(self, metrics: dict):
+        """Update the stats labels with new metrics."""
+        if metrics:
+            self.fps_label.setText(f"FPS: {metrics.get('fps', '--')}")
+            cpu_cores = metrics.get('cpu_cores', '--')
+            cpu_percent = metrics.get('cpu_percent', '--')
+            self.cpu_label.setText(f"CPU: {cpu_cores} cores @ {cpu_percent}%")
+            memory_mb = metrics.get('memory_used_mb', '--')
+            memory_percent = metrics.get('memory_percent', '--')
+            self.memory_label.setText(f"MEM: {memory_mb} MB ({memory_percent}%)")
+
+    def update_system_stats(self):
+        """Update system performance metrics from camera handler."""
+        # This will be called by IO Manager
+        pass  # Will be connected later
 
     def set_default_state(self):
         """Revert the UI to standard highway operation mode."""
