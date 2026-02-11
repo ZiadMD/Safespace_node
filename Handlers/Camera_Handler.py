@@ -188,9 +188,7 @@ class CameraHandler:
         frame_interval = 1.0 / fps
         empty_frame_count = 0
 
-        with self.frame_lock:
-            self.system_monitor.frame.copy()
-        self.system_monitor.update_frame()                              
+                            
         
         while self.active:
             try:
@@ -226,6 +224,8 @@ class CameraHandler:
                 # Store frame for snapshot requests
                 with self.frame_lock:
                     self.latest_frame = frame.copy()
+
+                self.system_monitor.update_frame()
                     
                 # Invoke callback for real-time processing (AI/UI)
                 if self.on_frame_captured:

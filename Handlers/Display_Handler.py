@@ -122,7 +122,7 @@ class MainWindow(QMainWindow):
         speed_layout = QHBoxLayout(speed_container)
         
         self._add_speed_labels(speed_layout)
-        main_layout.addWidget(speed_container, stretch=1)
+        main_layout.addWidget(speed_container, stretch=2)
 
         # --- Critical Alert Banner ---
         self.accident_banner = self._create_alert_banner()
@@ -146,41 +146,47 @@ class MainWindow(QMainWindow):
 
     def _add_speed_labels(self, layout):
         """Helper to build the speed and system metrics row."""
-       # Left side - System Stats
+        # Left side - System Stats
         stats_container = QWidget()
         stats_layout = QVBoxLayout(stats_container)
-        stats_layout.setSpacing(5)
+        stats_layout.setSpacing(10)
+        stats_layout.setContentsMargins(25, 10, 25, 10)
     
         self.fps_label = QLabel("FPS: --")
-        self.fps_label.setStyleSheet("color: #00FF88; font-size: 24px; font-weight: 600;")
+        self.fps_label.setStyleSheet("color: #00FF88; font-size: 26px; font-weight: 700;")
+        self.fps_label.setWordWrap(True)
         stats_layout.addWidget(self.fps_label)
     
         self.cpu_label = QLabel("CPU: --")
-        self.cpu_label.setStyleSheet("color: #FFD700; font-size: 24px; font-weight: 600;")
+        self.cpu_label.setStyleSheet("color: #FFD700; font-size: 23px; font-weight: 700;")
+        self.cpu_label.setWordWrap(True)
         stats_layout.addWidget(self.cpu_label)
     
         self.memory_label = QLabel("MEM: --")
-        self.memory_label.setStyleSheet("color: #FF6B6B; font-size: 24px; font-weight: 600;")
+        self.memory_label.setStyleSheet("color: #FF6B6B; font-size: 23px; font-weight: 700;")
+        self.memory_label.setWordWrap(True)
         stats_layout.addWidget(self.memory_label)
     
-        layout.addWidget(stats_container, stretch=1, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(stats_container, stretch=3, alignment=Qt.AlignmentFlag.AlignLeft)
     
-        # Center - Speed Limit (existing code)
-        title = QLabel("SPEED LIMIT")
-        title.setStyleSheet("color: white; font-size: 38px; font-weight: 200; letter-spacing: 4px;")
+        # Center - Speed Limit Title
+        title = QLabel("SPEED LIMIT")  # ✅ Fixed: Full text now
+        title.setStyleSheet("color: white; font-size: 26px; font-weight: 300; letter-spacing: 2px;")
         layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignRight)
     
+        # Speed Number
         self.speed_label = QLabel("0")
         self.speed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.speed_label.setStyleSheet("""
             background-color: #FFFFFF; color: #000000; border: 8px solid #FF3B3B;
-            border-radius: 90px; font-size: 58px; font-weight: 800;
-            min-height: 120px; max-height: 120px; min-width: 120px; max-width: 120px;
+            border-radius: 90px; font-size: 45px; font-weight: 800;
+            min-height: 90px; max-height: 90px; min-width: 90px; max-width: 90px;
         """)
         layout.addWidget(self.speed_label, stretch=0)
     
+        # Unit
         unit = QLabel("km/h")
-        unit.setStyleSheet("color: #888888; font-size: 32px; font-weight: 300;")
+        unit.setStyleSheet("color: #888888; font-size: 26px; font-weight: 300;")
         layout.addWidget(unit, stretch=1, alignment=Qt.AlignmentFlag.AlignLeft)
 
     def _create_alert_banner(self) -> QLabel:
@@ -188,7 +194,7 @@ class MainWindow(QMainWindow):
         banner = QLabel("⚠  ACCIDENT AHEAD  ⚠")
         banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         banner.setStyleSheet("""
-            background: #FF0000; color: #FFFFFF; font-size: 60px; font-weight: 900;
+            background: #FF0000; color: #FFFFFF; font-size: 56px; font-weight: 900;
             border: 4px solid #FFFFFF; border-radius: 12px; padding: 20px;
         """)
         banner.hide()
@@ -254,6 +260,10 @@ class LaneWidget(QFrame):
         super().__init__()
         self.lane_number = lane_number
         self.assets_dir = ROAD_SIGNS_DIR
+
+        #Inc lane frame size
+        ##self.setMinimumHeight(200)
+        ##self.setMaximumWidth(200)
         
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.icon_widget = QSvgWidget()

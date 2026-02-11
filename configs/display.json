@@ -1,8 +1,8 @@
 {
     "display": {
-        "width": 1500,
-        "height": 856,
-        "fullscreen": false,
+        "width": 1920,
+        "height": 1080,
+        "fullscreen": true,
         "theme": "dark"
     }
 }
