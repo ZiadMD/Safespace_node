@@ -8,11 +8,17 @@ node:
   description: Safespace Highway Node
 
 camera:
-  index: 0
-  width: 640
-  height: 480
-  fps: 5
-  loop_video: true
+  resolution:
+    width: 1920
+    height: 1080
+  fps: 30
+  # model: "IMX500" # Use "IMX500" when using the raspberry pi camera module
+  model: "native" # Use "native" for the default camera or specify a custom model if needed
+  loop_video: true # Loop video playback when using video input
+
+buffer:
+  max_seconds: 30 # How many seconds of recent footage the ring buffer keeps
+  # Buffer size = max_seconds × camera.fps (e.g. 30s × 30fps = 900 frames)
 
 display:
   width: 1500
