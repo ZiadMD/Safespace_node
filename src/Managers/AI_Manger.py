@@ -137,6 +137,7 @@ class AIManager:
     def _process_frame(self, frame: MatLike):
         """Called automatically when IO Manager has a new frame."""
         for model_name, model_data in self.models.items():
+            self.logger.debug(f"Processing frame with model: {model_name}")
             model = model_data["model"]
             confidence = model_data["confidence"]
             

@@ -84,7 +84,7 @@ class SafespaceNode:
                 model_names="accident_detection"
             )
             self.logger.info("AI Manager initialized")
-        
+        self.io.set_frame_callback(self.ai._process_frame if self.ai else None)
         # Lifecycle / Flow Management
         self.running = False
         self.awaiting_confirmation = False
