@@ -3,7 +3,7 @@ node:
   location:
     lat: "30.0444"
     long: "31.2357"
-  lanes: 3
+  lanes: 4
   default_speed: 120
   description: Safespace Highway Node
 
@@ -15,6 +15,11 @@ camera:
   # model: "IMX500" # Use "IMX500" when using the raspberry pi camera module
   model: "native" # Use "native" for the default camera or specify a custom model if needed
   loop_video: true # Loop video playback when using video input
+  imx500:
+    model_path: AI Layer/Models/imx500_model.rpk # Path to the compiled .rpk model for on-chip inference
+    confidence: 0.55 # Minimum confidence threshold for IMX500 detections
+    iou_threshold: 0.65 # IOU threshold for NMS on IMX500 output tensors
+    max_detections: 10 # Maximum number of detections per frame
 
 buffer:
   max_seconds: 30 # How many seconds of recent footage the ring buffer keeps

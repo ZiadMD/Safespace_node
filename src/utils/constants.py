@@ -5,8 +5,9 @@ from pathlib import Path
 import os
 
 # Project Structure
-BASE_DIR = Path(__file__).parent.parent
-ASSETS_DIR = BASE_DIR / "assets"
+BASE_DIR = Path(__file__).parent.parent          # → src/
+PROJECT_ROOT = BASE_DIR.parent                   # → Safespace_node/
+ASSETS_DIR = PROJECT_ROOT / "assets"
 LOGS_DIR = BASE_DIR / "logs"
 
 # Asset Paths

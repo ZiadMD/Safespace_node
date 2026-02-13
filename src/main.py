@@ -2,12 +2,12 @@
 Safespace Node - Main Orchestrator.
 
 Wires together:
-    InputManager  (camera/video → buffer)
-    AIManager     (buffer → inference → detection callbacks)
-    
+    InputManager   (camera/video → buffer)
+    AIManager      (buffer → inference → detection callbacks)
+    OutputManager  (display GUI — lanes, speed, accident alert)
+
 Future:
     NetworkManager (report accidents to central unit)
-    OutputManager  (display / LED signs)
 """
 import sys
 import os
@@ -20,6 +20,7 @@ from utils.logger import Logger
 from Handlers.frame_buffer_handler import FrameBufferHandler
 from Managers.input_manager import InputManager
 from Managers.ai_manager import AIManager
+from Managers.output_manager import OutputManager
 
 
 def parse_args():
@@ -36,21 +37,28 @@ def parse_args():
         action='store_true',
         help='Disable AI detection (run without model inference)'
     )
+    parser.add_argument(
+        '--no-display',
+        action='store_true',
+        help='Run headless without the GUI display'
+    )
     return parser.parse_args()
 
 
 class SafespaceNode:
     """
     Safespace Node Orchestrator.
-    
+
     Lifecycle:
         1. Config + Logger
         2. FrameBuffer (shared)
-        3. InputManager → fills buffer from camera/video
-        4. AIManager → pulls from buffer, runs models, fires callbacks
+        3. InputManager  → fills buffer from camera/video
+        4. AIManager     → pulls from buffer, runs models, fires callbacks
+        5. OutputManager  → display GUI (accident alert, lanes, speed)
     """
 
-    def __init__(self, video_path: str = None, enable_ai: bool = True):
+    def __init__(self, video_path: str = None, enable_ai: bool = True,
+                 enable_display: bool = True):
         # 1. Configuration & Logging
         self.config = Config()
         Logger.setup(self.config.get('logging', {}))
@@ -61,6 +69,8 @@ class SafespaceNode:
             self.logger.info(f"Video test mode: {video_path}")
         if not enable_ai:
             self.logger.info("AI detection disabled")
+        if not enable_display:
+            self.logger.info("Display disabled (headless mode)")
 
         # 2. Shared Frame Buffer
         self.buffer = FrameBufferHandler(self.config)
@@ -77,6 +87,14 @@ class SafespaceNode:
                 on_detection=self._on_ai_detection,
             )
             self.logger.info(f"AI Manager ready — models: {self.ai.loaded_models}")
+
+        # 5. Output Manager + Display
+        self.output = None
+        if enable_display:
+            self.output = OutputManager(
+                self.config,
+                on_manual_trigger=self._on_manual_trigger,
+            )
 
         # Lifecycle
         self.running = False
@@ -104,19 +122,28 @@ class SafespaceNode:
             self.ai.start()
 
         self.running = True
-        self.logger.info("Safespace Node is running. Press Ctrl+C to stop.")
+        self.logger.info("Safespace Node is running.")
 
-        try:
-            while self.running:
-                # Main thread heartbeat — keep alive
-                if not self.input.is_running:
-                    self.logger.info("Input source stopped — shutting down")
-                    break
-                time.sleep(0.5)
-        except KeyboardInterrupt:
-            pass
-        finally:
+        if self.output:
+            # Display event loop BLOCKS — runs on the main thread.
+            # Input and AI run in their own background threads.
+            self.logger.info("Starting display (Qt event loop)...")
+            self.output.start()
+            # When the window is closed, Qt returns here — shut down.
             self.stop()
+        else:
+            # Headless mode — simple loop
+            self.logger.info("Headless mode. Press Ctrl+C to stop.")
+            try:
+                while self.running:
+                    if not self.input.is_running:
+                        self.logger.info("Input source stopped — shutting down")
+                        break
+                    time.sleep(0.5)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                self.stop()
 
     def stop(self):
         """Cleanly shutdown all services."""
@@ -136,7 +163,7 @@ class SafespaceNode:
     def _on_ai_detection(self, model_name: str, detections, frame):
         """
         Called by AIManager when a model produces detections.
-        
+
         Args:
             model_name: Name of the model (e.g. "accident_detection")
             detections: supervision.Detections object
@@ -146,9 +173,21 @@ class SafespaceNode:
             f"AI DETECTION [{model_name}]: {len(detections)} object(s) detected"
         )
 
+        # Update the display with the accident
+        if self.output:
+            self.output.on_accident_detected(model_name, detections, frame)
+
         # TODO: Report to central unit via NetworkManager
         # TODO: Save snapshot / clip from buffer
-        # TODO: Update display via OutputManager
+
+    def _on_manual_trigger(self):
+        """Called when the user presses SPACE on the display."""
+        self.logger.info("Manual accident report triggered by user!")
+        # Get current frame from buffer for the report
+        frame = self.buffer.get_latest()
+        if self.output and frame is not None:
+            self.output.trigger_accident_alert(frame)
+        # TODO: Send manual report to central unit via NetworkManager
 
 
 if __name__ == "__main__":
@@ -157,5 +196,6 @@ if __name__ == "__main__":
     node = SafespaceNode(
         video_path=args.video,
         enable_ai=not args.no_ai,
+        enable_display=not args.no_display,
     )
     node.start()

@@ -16,9 +16,6 @@ supervision
 # Configuration
 PyYAML
 
-# Configuration
-PyYAML
-
 # Networking
 requests
 python-socketio
