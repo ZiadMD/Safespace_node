@@ -3,6 +3,7 @@ from cv2.typing import MatLike
 import supervision as sv
 import torch
 from utils.logger import Logger
+import time
 
 
 class ModelDetectionHandler:
@@ -26,6 +27,11 @@ class ModelDetectionHandler:
             sv.Detections: Supervision Detections object containing bounding boxes,
                            confidence scores, and class IDs.
         """
+
+        # detection time
+        start_time = time.monotonic()
         results = model.predict(frame, conf=confidence, device=self.device, verbose=False)
-        self.logger.info(f"Detection completed with {len(results[0].boxes)} boxes detected.")
+        end_time = time.monotonic()
+        detection_time = end_time - start_time
+        self.logger.info(f"Detection completed with {len(results[0].boxes)} boxes detected in {detection_time:.4f} seconds.")
         return sv.Detections.from_ultralytics(results[0])

@@ -33,7 +33,7 @@ class FailureManager:
         Initialize the failure manager.
         
         Args:
-            settings: Dictionary containing failure thresholds (from failures.json)
+            settings: Dictionary containing failure thresholds (from config.yaml)
         """
         self.logger = Logger("FailureManager")
         

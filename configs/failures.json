@@ -1,7 +1,0 @@
-{
-    "failures": {
-        "threshold": 5,
-        "window_seconds": 300,
-        "auto_reset": false
-    }
-}

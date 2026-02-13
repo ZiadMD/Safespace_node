@@ -1,0 +1,48 @@
+node:
+  id: 11
+  location:
+    lat: "30.0444"
+    long: "31.2357"
+  lanes: 3
+  default_speed: 120
+  description: Safespace Highway Node
+
+camera:
+  index: 0
+  width: 640
+  height: 480
+  fps: 5
+  loop_video: true
+
+display:
+  width: 1500
+  height: 856
+  fullscreen: false
+  theme: dark
+
+ai:
+  models:
+    accident_detection:
+      type: yolo
+      path: AI Layer/Models/Car Accident.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
+      confidence: 0.7 
+      enabled: true # Set to false to disable this model without removing its configuration
+      # target_classe is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
+      target_classe:
+        - accident
+
+network:
+  server_url: https://scarabaeoid-scrofulously-rupert.ngrok-free.dev
+  heartbeat_interval: 30
+  timeout: 10
+
+logging:
+  level: INFO
+  rotation: 5MB
+  backup_count: 5
+  file_logging: true
+
+failures:
+  threshold: 5
+  window_seconds: 300
+  auto_reset: false
