@@ -13,6 +13,9 @@ numpy
 ultralytics
 supervision
 
+# System Monitoring
+psutil
+
 # Configuration
 PyYAML
 

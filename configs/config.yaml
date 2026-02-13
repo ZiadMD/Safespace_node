@@ -16,7 +16,7 @@ camera:
   model: "native" # Use "native" for the default camera or specify a custom model if needed
   loop_video: true # Loop video playback when using video input
   imx500:
-    model_path: AI Layer/Models/imx500_model.rpk # Path to the compiled .rpk model for on-chip inference
+    model_path: models/imx500_model.rpk # Path to the compiled .rpk model for on-chip inference
     confidence: 0.55 # Minimum confidence threshold for IMX500 detections
     iou_threshold: 0.65 # IOU threshold for NMS on IMX500 output tensors
     max_detections: 10 # Maximum number of detections per frame
@@ -26,6 +26,7 @@ buffer:
   # Buffer size = max_seconds × camera.fps (e.g. 30s × 30fps = 900 frames)
 
 display:
+  mode: dev # "dev" = video feeds + AI feed + FPS + system monitor | "prod" = lanes + speed + warnings only
   width: 1500
   height: 856
   fullscreen: false
@@ -35,11 +36,11 @@ ai:
   models:
     accident_detection:
       type: yolo
-      path: AI Layer/Models/Car Accident.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
+      path: models/Car Accident.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
       confidence: 0.7 
       enabled: true # Set to false to disable this model without removing its configuration
-      # target_classe is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
-      target_classe:
+      # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
+      target_classes:
         - accident
 
 network:

@@ -17,10 +17,10 @@ import time
 
 from utils.config import Config
 from utils.logger import Logger
-from Handlers.frame_buffer_handler import FrameBufferHandler
-from Managers.input_manager import InputManager
-from Managers.ai_manager import AIManager
-from Managers.output_manager import OutputManager
+from handlers.frame_buffer import FrameBuffer
+from managers.input import InputManager
+from managers.ai import AIManager
+from managers.output import OutputManager
 
 
 def parse_args():
@@ -52,9 +52,9 @@ class SafespaceNode:
     Lifecycle:
         1. Config + Logger
         2. FrameBuffer (shared)
-        3. InputManager  → fills buffer from camera/video
-        4. AIManager     → pulls from buffer, runs models, fires callbacks
-        5. OutputManager  → display GUI (accident alert, lanes, speed)
+        3. OutputManager  → display GUI (lanes, speed, accident alert, dev feeds)
+        4. InputManager   → fills buffer from camera/video, pushes to display
+        5. AIManager      → pulls from buffer, runs models, fires callbacks
     """
 
     def __init__(self, video_path: str = None, enable_ai: bool = True,
@@ -73,28 +73,34 @@ class SafespaceNode:
             self.logger.info("Display disabled (headless mode)")
 
         # 2. Shared Frame Buffer
-        self.buffer = FrameBufferHandler(self.config)
+        self.buffer = FrameBuffer(self.config)
 
-        # 3. Input Manager (camera or video → buffer)
-        self.input = InputManager(self.config, self.buffer, video_path=video_path)
-
-        # 4. AI Manager (buffer → inference → callbacks)
-        self.ai = None
-        if enable_ai:
-            self.ai = AIManager(
-                self.config,
-                self.buffer,
-                on_detection=self._on_ai_detection,
-            )
-            self.logger.info(f"AI Manager ready — models: {self.ai.loaded_models}")
-
-        # 5. Output Manager + Display
+        # 3. Output Manager + Display (initialised early so callbacks can reference it)
         self.output = None
         if enable_display:
             self.output = OutputManager(
                 self.config,
                 on_manual_trigger=self._on_manual_trigger,
             )
+
+        # 4. Input Manager (camera or video → buffer)
+        self.input = InputManager(
+            self.config,
+            self.buffer,
+            video_path=video_path,
+            on_frame=self.output.push_input_frame if self.output else None,
+        )
+
+        # 5. AI Manager (buffer → inference → callbacks)
+        self.ai = None
+        if enable_ai:
+            self.ai = AIManager(
+                self.config,
+                self.buffer,
+                on_detection=self._on_ai_detection,
+                on_frame_processed=self.output.push_ai_frame if self.output else None,
+            )
+            self.logger.info(f"AI Manager ready — models: {self.ai.loaded_models}")
 
         # Lifecycle
         self.running = False
@@ -183,10 +189,8 @@ class SafespaceNode:
     def _on_manual_trigger(self):
         """Called when the user presses SPACE on the display."""
         self.logger.info("Manual accident report triggered by user!")
-        # Get current frame from buffer for the report
-        frame = self.buffer.get_latest()
-        if self.output and frame is not None:
-            self.output.trigger_accident_alert(frame)
+        if self.output:
+            self.output.trigger_accident_alert()
         # TODO: Send manual report to central unit via NetworkManager
 
 
