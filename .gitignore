@@ -106,3 +106,11 @@ Thumbs.db
 .dmypy.json
 dmypy.json
 
+# Models and large files
+*.pt
+*.pth
+*.h5
+*.ckpt
+*.zip
+*.tar.gz
+*.tar
