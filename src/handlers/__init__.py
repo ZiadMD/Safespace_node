@@ -8,4 +8,5 @@ Modules:
     model_loader    — ModelLoader (YOLO .pt loader)
     model_detection — ModelDetection (inference + filtering)
     display/        — DisplayHandler (PyQt6 dashboard)
+    socket          — SocketHandler (Socket.IO + raw WebSocket client)
 """

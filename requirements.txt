@@ -22,3 +22,4 @@ PyYAML
 # Networking
 requests
 python-socketio
+websocket-client

@@ -5,9 +5,7 @@ Wires together:
     InputManager   (camera/video → buffer)
     AIManager      (buffer → inference → detection callbacks)
     OutputManager  (display GUI — lanes, speed, accident alert)
-
-Future:
-    NetworkManager (report accidents to central unit)
+    NetworkManager (central unit — heartbeats, accident reports, commands)
 """
 import sys
 import os
@@ -21,6 +19,7 @@ from handlers.frame_buffer import FrameBuffer
 from managers.input import InputManager
 from managers.ai import AIManager
 from managers.output import OutputManager
+from managers.network import NetworkManager
 
 
 def parse_args():
@@ -42,6 +41,11 @@ def parse_args():
         action='store_true',
         help='Run headless without the GUI display'
     )
+    parser.add_argument(
+        '--no-network',
+        action='store_true',
+        help='Disable network communication with central unit'
+    )
     return parser.parse_args()
 
 
@@ -53,12 +57,13 @@ class SafespaceNode:
         1. Config + Logger
         2. FrameBuffer (shared)
         3. OutputManager  → display GUI (lanes, speed, accident alert, dev feeds)
-        4. InputManager   → fills buffer from camera/video, pushes to display
-        5. AIManager      → pulls from buffer, runs models, fires callbacks
+        4. NetworkManager → central unit (heartbeats, accident reports, commands)
+        5. InputManager   → fills buffer from camera/video, pushes to display
+        6. AIManager      → pulls from buffer, runs models, fires callbacks
     """
 
     def __init__(self, video_path: str = None, enable_ai: bool = True,
-                 enable_display: bool = True):
+                 enable_display: bool = True, enable_network: bool = True):
         # 1. Configuration & Logging
         self.config = Config()
         Logger.setup(self.config.get('logging', {}))
@@ -71,6 +76,8 @@ class SafespaceNode:
             self.logger.info("AI detection disabled")
         if not enable_display:
             self.logger.info("Display disabled (headless mode)")
+        if not enable_network:
+            self.logger.info("Network disabled (offline mode)")
 
         # 2. Shared Frame Buffer
         self.buffer = FrameBuffer(self.config)
@@ -83,7 +90,16 @@ class SafespaceNode:
                 on_manual_trigger=self._on_manual_trigger,
             )
 
-        # 4. Input Manager (camera or video → buffer)
+        # 4. Network Manager (central unit communication)
+        self.network = None
+        if enable_network:
+            self.network = NetworkManager(
+                self.config,
+                on_road_update=self.output.apply_road_update if self.output else None,
+                on_accident_cleared=self.output.clear_accident if self.output else None,
+            )
+
+        # 5. Input Manager (camera or video → buffer)
         self.input = InputManager(
             self.config,
             self.buffer,
@@ -91,7 +107,7 @@ class SafespaceNode:
             on_frame=self.output.push_input_frame if self.output else None,
         )
 
-        # 5. AI Manager (buffer → inference → callbacks)
+        # 6. AI Manager (buffer → inference → callbacks)
         self.ai = None
         if enable_ai:
             self.ai = AIManager(
@@ -127,6 +143,10 @@ class SafespaceNode:
         if self.ai:
             self.ai.start()
 
+        # Start network (heartbeats + socket connections)
+        if self.network:
+            self.network.start()
+
         self.running = True
         self.logger.info("Safespace Node is running.")
 
@@ -160,6 +180,8 @@ class SafespaceNode:
 
         if self.ai:
             self.ai.stop()
+        if self.network:
+            self.network.stop()
         self.input.stop()
 
         self.logger.info("Safespace Node stopped.")
@@ -183,15 +205,15 @@ class SafespaceNode:
         if self.output:
             self.output.on_accident_detected(model_name, detections, frame)
 
-        # TODO: Report to central unit via NetworkManager
-        # TODO: Save snapshot / clip from buffer
+        # Report to central unit
+        if self.network:
+            self.network.report_accident(detections, frame)
 
     def _on_manual_trigger(self):
         """Called when the user presses SPACE on the display."""
         self.logger.info("Manual accident report triggered by user!")
         if self.output:
             self.output.trigger_accident_alert()
-        # TODO: Send manual report to central unit via NetworkManager
 
 
 if __name__ == "__main__":
@@ -201,5 +223,6 @@ if __name__ == "__main__":
         video_path=args.video,
         enable_ai=not args.no_ai,
         enable_display=not args.no_display,
+        enable_network=not args.no_network,
     )
     node.start()
