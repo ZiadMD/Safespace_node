@@ -1,5 +1,5 @@
 node:
-  id: 11
+  id: "safe-space-node-001"
   location:
     lat: "30.0444"
     long: "31.2357"
@@ -9,8 +9,8 @@ node:
 
 camera:
   resolution:
-    width: 1920
-    height: 1080
+    width: 640
+    height: 640
   fps: 30
   # model: "IMX500" # Use "IMX500" when using the raspberry pi camera module
   model: "native" # Use "native" for the default camera or specify a custom model if needed
@@ -45,8 +45,10 @@ ai:
 
 network:
   server_url: https://scarabaeoid-scrofulously-rupert.ngrok-free.dev
-  heartbeat_interval: 30
-  timeout: 10
+  ws_path: /ws/nodes                # Raw WebSocket endpoint for commands
+  heartbeat_interval: 5             # Seconds between heartbeat POSTs
+  timeout: 10                        # HTTP / Socket.IO request timeout
+  accident_cooldown: 1              # Seconds between duplicate accident reports
 
 logging:
   level: INFO

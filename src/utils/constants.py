@@ -33,11 +33,24 @@ LANE_STATUS_BLOCKED = "blocked"
 LANE_STATUS_LEFT = "left"
 LANE_STATUS_RIGHT = "right"
 
-# Socket.io Events
-EVENT_ROAD_UPDATE = "road_update"
-EVENT_CENTRAL_UNIT_UPDATE = "central_unit_update"
-EVENT_HEARTBEAT = "heartbeat"
-EVENT_ACCIDENT_REPORT = "/api/accident-detected"
+# Socket.IO Events
+EVENT_ACCIDENT_DETECTED = "node_accident_detected"  # Node → Server (Socket.IO)
 
-# API Keys
-ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY")
+# WebSocket Command IDs (Server → Node)
+COMMAND_ACCIDENT_DECISION = "accident-decision"
+
+# HTTP API Endpoints
+API_NODE_REGISTER = "/api/nodes/register"
+API_NODE_HEARTBEAT = "/api/nodes/heartbeat"
+
+# Accident Decision Statuses
+STATUS_CONFIRMED = "CONFIRMED"
+STATUS_REJECTED = "REJECTED"
+
+# Backend → Node lane-status mapping (backend uses "open", display uses "up")
+BACKEND_LANE_STATUS_MAP = {
+    "open": LANE_STATUS_UP,
+    "blocked": LANE_STATUS_BLOCKED,
+    "left": LANE_STATUS_LEFT,
+    "right": LANE_STATUS_RIGHT,
+}
