@@ -48,6 +48,8 @@ class CameraHandler:
         try:
             if self.camera_type == 'imx500':
                 return self._start_imx500()
+            elif self.camera_type == 'picam':
+                return self._start_picamera()
             else:
                 return self._start_native()
         except Exception as e:
@@ -70,7 +72,26 @@ class CameraHandler:
         self._running = True
         self.logger.info("Camera started (native)")
         return True
-
+    
+    def _start_picamera(self) -> bool:
+        """Open a Raspberry Pi camera via picamera2."""
+        if not _HAS_PICAMERA2:
+            raise ImportError(
+                "picamera2 is not available. "
+                "Install it on Raspberry Pi: sudo apt install python3-picamera2"
+            )
+        self.camera = Picamera2()
+        res = self.config.get('camera.resolution', {})
+        cam_config = self.camera.create_preview_configuration(
+            main={"size": (res.get('width', 1920), res.get('height', 1080))},
+            controls={"FrameRate": self.config.get_int('camera.fps', 30)},
+        )
+        self.camera.configure(cam_config)
+        self.camera.start()
+        self._running = True
+        self.logger.info("Camera started (picamera)")
+        return True
+    
     def _start_imx500(self) -> bool:
         """Open the IMX500 camera with on-chip AI model."""
         if not _HAS_PICAMERA2:
@@ -137,11 +158,23 @@ class CameraHandler:
         try:
             if self.camera_type == 'imx500':
                 return self._read_frame_imx500()
+            elif self.camera_type == 'picam':
+                return self._read_frame_picam()
             else:
                 ret, frame = self.camera.read()
                 return frame if ret else None
         except Exception as e:
             self.logger.error(f"Frame read failed: {e}")
+            return None
+
+    def _read_frame_picam(self) -> Optional[MatLike]:
+        """Read a frame from the picamera2 camera."""
+        try:
+            frame = self.camera.capture_array()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            return frame
+        except Exception:
+            self.logger.warning("Failed to read frame from picamera2")
             return None
 
     def _read_frame_imx500(self) -> Optional[MatLike]:
