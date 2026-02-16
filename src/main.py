@@ -70,6 +70,12 @@ class SafespaceNode:
         self.logger = Logger("SafespaceNode")
         self.logger.info("Initializing Safespace Node...")
 
+        # Check if using IMX500 (on-chip inference) — if so, disable software AI
+        camera_model = self.config.get('camera.model', 'native')
+        if camera_model == 'imx500':
+            self.logger.info("IMX500 mode detected — disabling software AI (using on-chip inference)")
+            enable_ai = False
+
         if video_path:
             self.logger.info(f"Video test mode: {video_path}")
         if not enable_ai:
@@ -105,6 +111,7 @@ class SafespaceNode:
             self.buffer,
             video_path=video_path,
             on_frame=self.output.push_input_frame if self.output else None,
+            on_imx500_detection=self._on_imx500_detection if camera_model == 'imx500' else None,
         )
 
         # 6. AI Manager (buffer → inference → callbacks)
@@ -208,6 +215,25 @@ class SafespaceNode:
         # Report to central unit
         if self.network:
             self.network.report_accident(detections, frame)
+
+    def _on_imx500_detection(self, model_name: str, detections: dict, frame):
+        """
+        Called by InputManager when IMX500 produces detections.
+
+        Args:
+            model_name: "imx500"
+            detections: Dict with keys: boxes, scores, class_ids
+            frame: The frame where detection occurred
+        """
+        num_detections = len(detections.get("boxes", [])) if detections else 0
+        if num_detections > 0:
+            self.logger.warning(
+                f"IMX500 DETECTION: {num_detections} object(s) detected"
+            )
+
+        # Update the display with the detections
+        if self.output:
+            self.output.on_imx500_detected(detections, frame)
 
     def _on_manual_trigger(self):
         """Called when the user presses SPACE on the display."""

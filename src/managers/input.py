@@ -16,8 +16,9 @@ from handlers.camera import CameraHandler
 from handlers.video import VideoHandler
 from handlers.frame_buffer import FrameBuffer
 
-# Type alias for the frame callback
+# Type aliases for callbacks
 FrameCallback = Callable[[MatLike], None]
+DetectionCallback = Callable[[str, dict, MatLike], None]
 
 
 class InputManager:
@@ -34,6 +35,7 @@ class InputManager:
         buffer: FrameBuffer,
         video_path: Optional[str] = None,
         on_frame: Optional[FrameCallback] = None,
+        on_imx500_detection: Optional[DetectionCallback] = None,
     ):
         """
         Args:
@@ -42,11 +44,14 @@ class InputManager:
             video_path: If provided, use video file instead of camera.
             on_frame: Optional callback fired with every captured frame.
                       Signature: (frame: MatLike)
+            on_imx500_detection: Optional callback fired when IMX500 detections are available.
+                                 Signature: (model_name: str, detections: dict, frame: MatLike)
         """
         self.logger = Logger("InputManager")
         self.config = config
         self.buffer = buffer
         self.on_frame = on_frame
+        self.on_imx500_detection = on_imx500_detection
 
         # Create the appropriate input source
         if video_path:
@@ -91,6 +96,12 @@ class InputManager:
                 self.buffer.write_frame(frame)
                 if self.on_frame:
                     self.on_frame(frame)
+                
+                # If using IMX500, fire detection callback with on-chip detections
+                if self.on_imx500_detection and hasattr(self.source, 'is_imx500') and self.source.is_imx500:
+                    detections = self.source.get_imx500_detections()
+                    if detections is not None:
+                        self.on_imx500_detection("imx500", detections, frame)
             else:
                 # Source returned None — either EOF (video) or transient error (camera)
                 if not self.source.is_running:

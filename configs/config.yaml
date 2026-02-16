@@ -12,12 +12,12 @@ camera:
     width: 640
     height: 640
   fps: 30
-  # model: "imx500" # Use "IMX500" when using the raspberry pi camera module
-  model: "picam"
+  model: "imx500" # Use "IMX500" when using the raspberry pi camera module
+  # model: "picam"
   # model: "native" # Use "native" for the default camera or specify a custom model if needed
   loop_video: true # Loop video playback when using video input
   imx500:
-    model_path: models/imx500_network_yolov8n_pp.rpk # Path to the compiled .rpk model for on-chip inference
+    model_path: /usr/share/imx500-models/imx500_network_ssd_mobilenetv2_fpnlite_320x320_pp.rpk # Path to the compiled .rpk model for on-chip inference
     confidence: 0.55 # Minimum confidence threshold for IMX500 detections
     iou_threshold: 0.65 # IOU threshold for NMS on IMX500 output tensors
     max_detections: 10 # Maximum number of detections per frame
@@ -39,7 +39,7 @@ ai:
       type: yolo
       path: models/best_MSamir.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
       confidence: 0.7 
-      enabled: true # Set to false to disable this model without removing its configuration
+      enabled: false # Set to false to disable this model without removing its configuration
       # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
       target_classes:
         - Moderate
