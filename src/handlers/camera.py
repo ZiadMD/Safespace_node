@@ -38,7 +38,7 @@ class CameraHandler:
         self._running = False
 
         # IMX500-specific
-        self._imx500: Any = None
+        self._imx500: IMX500 = None
         self._last_detections: Optional[Any] = None
 
     # ── Start / Stop ──────────────────────────────────────────────
@@ -110,13 +110,20 @@ class CameraHandler:
         self.logger.info(f"Loading IMX500 model: {model_path}")
         self._imx500 = IMX500(model_path)
 
-        intrinsics = self._imx500.network_intrinsics or NetworkIntrinsics()
-        intrinsics.task = "object detection"
+        intrinsics = self._imx500.network_intrinsics
+        if intrinsics is None:
+            intrinsics = NetworkIntrinsics()
+            intrinsics.task = "object detection"
+
+        # Modify in place, don't reassign
         confidence = self.config.get_float('camera.imx500.confidence', 0.5)
-        intrinsics.confidence_threshold = confidence
-        intrinsics.iou_threshold = self.config.get_float('camera.imx500.iou_threshold', 0.5)
-        intrinsics.max_detections = self.config.get_int('camera.imx500.max_detections', 10)
-        self._imx500.network_intrinsics = intrinsics
+        if hasattr(intrinsics, 'threshold'):
+            intrinsics.threshold = confidence  # Use 'threshold', not 'confidence_threshold'
+        if hasattr(intrinsics, 'iou_threshold'):
+            intrinsics.iou_threshold = self.config.get_float('camera.imx500.iou_threshold', 0.5)
+        if hasattr(intrinsics, 'max_detections'):
+            intrinsics.max_detections = self.config.get_int('camera.imx500.max_detections', 10)
+        # Don't assign it back — already modified the object
 
         self.camera = Picamera2(self._imx500.camera_num)
         res = self.config.get('camera.resolution', {})
@@ -125,7 +132,8 @@ class CameraHandler:
             controls={"FrameRate": self.config.get_int('camera.fps', 30)},
         )
         self.camera.configure(cam_config)
-        self.camera.start()
+        self._imx500.show_network_fw_progress_bar()
+        self.camera.start(cam_config)
 
         self._running = True
         self.logger.info(f"Camera started (IMX500, confidence={confidence})")
@@ -178,12 +186,18 @@ class CameraHandler:
             return None
 
     def _read_frame_imx500(self) -> Optional[MatLike]:
-        """Read a frame from the IMX500 and cache its on-chip detections."""
-        metadata = self.camera.capture_metadata()
-        frame = self.camera.capture_array()
         try:
+            request = self.camera.capture_request()
+            frame = request.make_array("main")
+            metadata = request.get_metadata()
+            request.release()
+            
+            # ✅ Convert 4-channel to 3-channel
+            if frame.ndim == 3 and frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+            
             np_outputs = self._imx500.get_outputs(metadata)
-            if np_outputs is not None:
+            if np_outputs is not None and len(np_outputs) >= 3:
                 boxes, scores, classes = np_outputs[0], np_outputs[1], np_outputs[2]
                 self._last_detections = {
                     "boxes": boxes,
@@ -195,8 +209,8 @@ class CameraHandler:
         except Exception as e:
             self.logger.debug(f"IMX500 output parse failed: {e}")
             self._last_detections = None
+            return None
         return frame
-
     # ── IMX500 Detection Access ───────────────────────────────────
 
     def get_imx500_detections(self) -> Optional[dict]:
