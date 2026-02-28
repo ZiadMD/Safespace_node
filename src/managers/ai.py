@@ -7,7 +7,8 @@ Architecture:
 The AI Manager runs its own inference loop in a background thread.
 It pulls frames from the buffer at whatever pace the GPU can handle,
 so it naturally skips frames when inference is slower than camera FPS.
-"""
+Supports both YOLO (.pt) and ONNX (.onnx) models — format is auto-detected
+by the ModelLoader based on file extension."""
 import time
 import threading
 from typing import Optional, Callable, Dict, Any, List
@@ -122,14 +123,22 @@ class AIManager:
             self.logger.error(f"Failed to load model '{name}' from {resolved_path}")
             return
 
+        # Detect model type for logging / future branching
+        from handlers.onnx_model import OnnxModel
+        model_type = "onnx" if isinstance(model, OnnxModel) else "yolo"
+
         self._models[name] = {
             "model": model,
+            "type": model_type,
             "path": resolved_path,
             "confidence": model_conf.get("confidence", 0.5),
             "target_classes": model_conf.get("target_classes", []),
         }
-        self.logger.info(f"Model '{name}' ready (conf={model_conf.get('confidence', 0.5)}, "
-                         f"classes={model_conf.get('target_classes', [])})")
+        self.logger.info(
+            f"Model '{name}' ready (type={model_type}, "
+            f"conf={model_conf.get('confidence', 0.5)}, "
+            f"classes={model_conf.get('target_classes', [])})"
+        )
 
     # ── Inference Loop ────────────────────────────────────────────
 
