@@ -12,8 +12,8 @@ camera:
     width: 640
     height: 640
   fps: 30
-  model: "imx500" # Use "IMX500" when using the raspberry pi camera module
-  # model: "picam"
+  # model: "imx500" # Use "IMX500" when using the raspberry pi camera module
+  model: "picam"
   # model: "native" # Use "native" for the default camera or specify a custom model if needed
   loop_video: true # Loop video playback when using video input
   imx500:
@@ -41,6 +41,16 @@ ai:
       confidence: 0.7 
       enabled: false # Set to false to disable this model without removing its configuration
       # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
+      target_classes:
+        - Moderate
+        - Severe
+
+    # Example: ONNX model (auto-detected by .onnx extension)
+    accident_detection_onnx:
+      type: onnx
+      path: models/best_MSamir.onnx
+      confidence: 0.7
+      enabled: true
       target_classes:
         - Moderate
         - Severe

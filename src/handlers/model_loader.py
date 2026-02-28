@@ -1,8 +1,7 @@
-"""
-Model Loader — Loads and manages YOLO models from disk.
+"""Model Loader — Loads and manages YOLO / ONNX models from disk.
 
 Responsible only for:
-  - Loading a model file into memory
+  - Loading a model file into memory (.pt via Ultralytics, .onnx via OnnxModel)
   - Holding references to loaded models
   - Unloading models to free resources
 """
@@ -13,7 +12,7 @@ from utils.logger import Logger
 
 
 class ModelLoader:
-    """Loads and caches YOLO models."""
+    """Loads and caches YOLO (.pt) and ONNX (.onnx) models."""
 
     def __init__(self):
         self.logger = Logger("ModelLoader")
@@ -21,13 +20,17 @@ class ModelLoader:
 
     def load(self, model_path: str) -> Optional[Any]:
         """
-        Load a YOLO model from disk.
+        Load a model from disk.  Auto-detects format by file extension.
+
+        Supported formats:
+            .pt   → loaded via ``ultralytics.YOLO``
+            .onnx → loaded via ``handlers.onnx_model.OnnxModel``
 
         Args:
-            model_path: Path to the .pt model file.
+            model_path: Path to the model file.
 
         Returns:
-            The loaded YOLO model, or None on failure.
+            The loaded model object, or None on failure.
         """
         # Return cached model if already loaded
         if model_path in self._models:
@@ -39,14 +42,34 @@ class ModelLoader:
             self.logger.error(f"Model file not found: {model_path}")
             return None
 
+        suffix = path.suffix.lower()
+        if suffix == ".onnx":
+            return self._load_onnx(model_path, path)
+        else:
+            return self._load_yolo(model_path, path)
+
+    def _load_yolo(self, model_path: str, path: Path) -> Optional[Any]:
+        """Load a YOLO .pt model via Ultralytics."""
         try:
             from ultralytics import YOLO
             model = YOLO(str(path))
             self._models[model_path] = model
-            self.logger.info(f"Model loaded: {path.name}")
+            self.logger.info(f"YOLO model loaded: {path.name}")
             return model
         except Exception as e:
-            self.logger.error(f"Failed to load model '{model_path}': {e}")
+            self.logger.error(f"Failed to load YOLO model '{model_path}': {e}")
+            return None
+
+    def _load_onnx(self, model_path: str, path: Path) -> Optional[Any]:
+        """Load an ONNX model via OnnxModel wrapper (onnxruntime)."""
+        try:
+            from handlers.onnx_model import OnnxModel
+            model = OnnxModel(str(path))
+            self._models[model_path] = model
+            self.logger.info(f"ONNX model loaded: {path.name}")
+            return model
+        except Exception as e:
+            self.logger.error(f"Failed to load ONNX model '{model_path}': {e}")
             return None
 
     def unload(self, model_path: str) -> bool:

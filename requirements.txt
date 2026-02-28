@@ -12,6 +12,7 @@ opencv-python
 numpy
 ultralytics
 supervision
+onnxruntime
 
 # System Monitoring
 psutil
