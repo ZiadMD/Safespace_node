@@ -8,7 +8,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont
-from PyQt6.QtSvgWidgets import QSvgWidget
+
+try:
+    from PyQt6.QtSvgWidgets import QSvgWidget
+    _HAS_QTSVGWIDGETS = True
+except ImportError:
+    QSvgWidget = None
+    _HAS_QTSVGWIDGETS = False
 
 from utils.constants import ROAD_SIGNS_DIR
 
@@ -70,8 +76,14 @@ class LaneWidget(QFrame):
         self.title_label.setStyleSheet("color: #888888; background: transparent;")
         layout.addWidget(self.title_label)
 
-        # SVG Icon — large and dominant
-        self.icon_widget = QSvgWidget()
+        # SVG Icon — large and dominant (falls back to text if QtSvgWidgets is missing)
+        if _HAS_QTSVGWIDGETS:
+            self.icon_widget = QSvgWidget()
+        else:
+            self.icon_widget = QLabel("SIGN")
+            self.icon_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.icon_widget.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+            self.icon_widget.setStyleSheet("color: #cccccc; background: transparent;")
         self.icon_widget.setFixedSize(QSize(160, 160))
         icon_container = QHBoxLayout()
         icon_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -93,10 +105,16 @@ class LaneWidget(QFrame):
         status = status.lower()
         visuals = LANE_VISUALS.get(status, LANE_VISUALS["up"])
 
-        # Load SVG icon
-        icon_path = str(ROAD_SIGNS_DIR / visuals["icon"])
-        if Path(icon_path).exists():
-            self.icon_widget.load(icon_path)
+        # Load SVG icon when available, otherwise display a text fallback.
+        if _HAS_QTSVGWIDGETS:
+            icon_path = str(ROAD_SIGNS_DIR / visuals["icon"])
+            if Path(icon_path).exists():
+                self.icon_widget.load(icon_path)
+        else:
+            self.icon_widget.setText(visuals["label"])
+            self.icon_widget.setStyleSheet(
+                f"color: {visuals['label_color']}; background: transparent;"
+            )
 
         # Update frame style — use #id selector so it does NOT cascade to children
         obj_id = self.objectName()

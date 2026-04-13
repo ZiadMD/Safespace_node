@@ -33,6 +33,21 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Raspberry Pi Setup (Recommended)
+On Raspberry Pi OS, install Qt bindings from apt to avoid PyQt6 source-build failures in pip:
+
+```bash
+sudo apt update
+sudo apt install -y python3-pyqt6
+
+# Recreate venv with system packages so apt-installed PyQt6 is visible
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+
+# Install Pi-compatible Python dependencies
+pip install -r requirements-raspi.txt
+```
+
 ### 2. Configuration
 The application automatically merges all JSON files found in `safespace/configs/`. Customize your node by editing:
 - `configs/node.json`: ID and GPS coordinates.

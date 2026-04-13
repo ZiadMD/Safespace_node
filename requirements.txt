@@ -9,7 +9,7 @@ PyQt6
 
 # Computer Vision
 opencv-python
-numpy
+numpy<2
 ultralytics
 supervision
 onnxruntime
