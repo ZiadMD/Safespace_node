@@ -1,0 +1,25 @@
+services:
+  safespace-node:
+    build:
+      context: .
+      target: raspi
+    restart: unless-stopped
+    devices:
+      - /dev/video0:/dev/video0
+    volumes:
+      - ./configs/config.yaml:/app/configs/config.yaml:ro
+      - ./models:/app/models:ro
+      - node-logs:/app/src/logs
+    environment:
+      - NODE_ID=${NODE_ID:-safe-space-node-001}
+      - SERVER_URL=${SERVER_URL:-https://your-server.example.com}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - STREAMING_FPS=${STREAMING_FPS:-10}
+      - STREAMING_QUALITY=${STREAMING_QUALITY:-50}
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  node-logs:

@@ -24,6 +24,7 @@ camera:
 
 buffer:
   max_seconds: 30 # How many seconds of recent footage the ring buffer keeps
+  num_slots: 4    # Number of shared memory frame slots (v2)
   # Buffer size = max_seconds × camera.fps (e.g. 30s × 30fps = 900 frames)
 
 display:
@@ -61,6 +62,19 @@ network:
   heartbeat_interval: 5             # Seconds between heartbeat POSTs
   timeout: 10                        # HTTP / Socket.IO request timeout
   accident_cooldown: 1              # Seconds between duplicate accident reports
+
+# ── v2: Fallback Streaming ─────────────────────────────────────
+streaming:
+  fps: 10                    # Frames per second when streaming to server
+  quality: 50                # JPEG quality (0-100). Lower = less bandwidth
+  protocol: mjpeg_ws         # mjpeg_ws = MJPEG over existing WebSocket
+
+# ── v2: Process Supervisor ─────────────────────────────────────
+supervisor:
+  health_check_interval: 5   # Seconds between health checks
+  ai_health_timeout: 30      # Seconds without AI response before fallback
+  max_ai_restarts: 3         # Restart attempts before switching to streaming
+  auto_recover: true         # Auto-switch back to NORMAL when AI recovers
 
 logging:
   level: INFO

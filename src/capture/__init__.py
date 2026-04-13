@@ -1,0 +1,1 @@
+"""capture — Frame capture process."""

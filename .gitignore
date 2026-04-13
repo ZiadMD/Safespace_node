@@ -114,3 +114,4 @@ dmypy.json
 *.zip
 *.tar.gz
 *.tar
+*.rpk

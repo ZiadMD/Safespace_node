@@ -1,254 +1,221 @@
+#!/usr/bin/env python3
 """
-Safespace Node - Main Orchestrator.
+Safespace Node v2 — Main Entry Point
 
-Wires together:
-    InputManager   (camera/video → buffer)
-    AIManager      (buffer → inference → detection callbacks)
-    OutputManager  (display GUI — lanes, speed, accident alert)
-    NetworkManager (central unit — heartbeats, accident reports, commands)
+Orchestrates the system using a supervisor-based architecture:
+    1. Loads config
+    2. Allocates shared memory
+    3. Creates message bus
+    4. Spawns capture process (separate OS process)
+    5. Spawns inference process (separate OS process, optional)
+    6. Starts network service (asyncio in thread)
+    7. Starts supervisor (health monitoring in thread)
+    8. Runs Qt display on main thread (or headless loop)
+
+Usage:
+    python main.py                        # normal boot from config
+    python main.py --video path/to.mp4    # use a video file instead of camera
+    python main.py --no-ai                # disable AI inference
+    python main.py --no-display           # headless mode (no GUI)
+    python main.py --no-network           # offline mode (no server)
 """
-import sys
 import os
+import sys
 import signal
 import argparse
 import time
+import multiprocessing as mp
+from pathlib import Path
 
-from utils.config import Config
-from utils.logger import Logger
-from handlers.frame_buffer import FrameBuffer
-from managers.input import InputManager
-from managers.ai import AIManager
-from managers.output import OutputManager
-from managers.network import NetworkManager
+# Add src/ to Python path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from core.config import Config
+from core.logger import Logger
+from core.message_bus import MessageBus
+from core.shared_memory import SharedFrameSlots
+from core.node_state import NodeState, Mode
+from core.supervisor import NodeSupervisor
+from core.constants import TOPIC_SHUTDOWN, TOPIC_DETECTION, TOPIC_MODE_CHANGED
 
 
 def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Safespace Node - Road Safety Monitoring System")
-    parser.add_argument(
-        '--video', '-v',
-        type=str,
-        default=None,
-        help='Path to video file for testing (bypasses camera)'
-    )
-    parser.add_argument(
-        '--no-ai',
-        action='store_true',
-        help='Disable AI detection (run without model inference)'
-    )
-    parser.add_argument(
-        '--no-display',
-        action='store_true',
-        help='Run headless without the GUI display'
-    )
-    parser.add_argument(
-        '--no-network',
-        action='store_true',
-        help='Disable network communication with central unit'
-    )
+    parser = argparse.ArgumentParser(description="Safespace Node v2")
+    parser.add_argument("--video", type=str, default=None, help="Video file path (test mode)")
+    parser.add_argument("--no-ai", action="store_true", help="Disable AI inference")
+    parser.add_argument("--no-display", action="store_true", help="Headless mode")
+    parser.add_argument("--no-network", action="store_true", help="Offline mode")
+    parser.add_argument("--config", type=str, default=None, help="Config file path")
     return parser.parse_args()
 
 
-class SafespaceNode:
-    """
-    Safespace Node Orchestrator.
+def main():
+    args = parse_args()
 
-    Lifecycle:
-        1. Config + Logger
-        2. FrameBuffer (shared)
-        3. OutputManager  → display GUI (lanes, speed, accident alert, dev feeds)
-        4. NetworkManager → central unit (heartbeats, accident reports, commands)
-        5. InputManager   → fills buffer from camera/video, pushes to display
-        6. AIManager      → pulls from buffer, runs models, fires callbacks
-    """
+    # ── 1. Config + Logging ──────────────────────────────────────
+    config = Config(args.config)
+    Logger.setup(config.get('logging', {}))
+    logger = Logger("SafespaceNode")
+    logger.info("Initializing Safespace Node v2...")
 
-    def __init__(self, video_path: str = None, enable_ai: bool = True,
-                 enable_display: bool = True, enable_network: bool = True):
-        # 1. Configuration & Logging
-        self.config = Config()
-        Logger.setup(self.config.get('logging', {}))
-        self.logger = Logger("SafespaceNode")
-        self.logger.info("Initializing Safespace Node...")
+    # Check for env-based overrides
+    if os.environ.get('SAFESPACE_NO_DISPLAY') == '1':
+        args.no_display = True
 
-        # Check if using IMX500 (on-chip inference) — if so, disable software AI
-        camera_model = self.config.get('camera.model', 'native')
-        if camera_model == 'imx500':
-            self.logger.info("IMX500 mode detected — disabling software AI (using on-chip inference)")
-            enable_ai = False
+    # IMX500 mode disables software AI
+    camera_model = config.get('camera.model', 'native')
+    enable_ai = not args.no_ai and camera_model != 'imx500'
+    enable_display = not args.no_display
+    enable_network = not args.no_network
 
-        if video_path:
-            self.logger.info(f"Video test mode: {video_path}")
-        if not enable_ai:
-            self.logger.info("AI detection disabled")
-        if not enable_display:
-            self.logger.info("Display disabled (headless mode)")
-        if not enable_network:
-            self.logger.info("Network disabled (offline mode)")
+    if camera_model == 'imx500':
+        logger.info("IMX500 mode — on-chip inference, software AI disabled")
+    if args.video:
+        logger.info(f"Video test mode: {args.video}")
 
-        # 2. Shared Frame Buffer
-        self.buffer = FrameBuffer(self.config)
+    # ── 2. Shared Memory ─────────────────────────────────────────
+    width = config.get_int('camera.resolution.width', 640)
+    height = config.get_int('camera.resolution.height', 640)
+    channels = 3
+    num_slots = config.get_int('buffer.num_slots', 4)
 
-        # 3. Output Manager + Display (initialised early so callbacks can reference it)
-        self.output = None
+    shared_slots = SharedFrameSlots(width, height, channels, num_slots)
+    logger.info(f"Shared memory ready ({num_slots} slots, {width}×{height})")
+
+    # ── 3. Message Bus ────────────────────────────────────────────
+    bus = MessageBus()
+
+    # ── 4. Node State ─────────────────────────────────────────────
+    state = NodeState()
+
+    # ── 5. Stop Event ─────────────────────────────────────────────
+    stop_event = mp.Event()
+
+    # Config file path for child processes
+    config_path = args.config
+    if not config_path:
+        config_path = str(Path(__file__).parent.parent / "configs" / "config.yaml")
+
+    # ── 6. Spawn Capture Process ──────────────────────────────────
+    from capture.process import capture_process_entry
+
+    capture_proc = mp.Process(
+        target=capture_process_entry,
+        args=(
+            config_path,
+            shared_slots.shm_name,
+            width, height, channels, num_slots,
+            bus,
+            args.video,
+            stop_event,
+        ),
+        name="CaptureProcess",
+        daemon=True,
+    )
+    capture_proc.start()
+    logger.info(f"Capture process started (pid={capture_proc.pid})")
+
+    # ── 7. Spawn Inference Process (optional) ─────────────────────
+    ai_proc = None
+    ai_factory = None
+
+    if enable_ai:
+        from inference.process import inference_process_entry
+
+        def _create_ai_process():
+            p = mp.Process(
+                target=inference_process_entry,
+                args=(
+                    config_path,
+                    shared_slots.shm_name,
+                    width, height, channels, num_slots,
+                    bus,
+                    stop_event,
+                ),
+                name="InferenceProcess",
+                daemon=True,
+            )
+            return p
+
+        ai_factory = _create_ai_process
+        ai_proc = _create_ai_process()
+        ai_proc.start()
+        logger.info(f"Inference process started (pid={ai_proc.pid})")
+
+    # ── 8. Network Service (optional) ─────────────────────────────
+    network = None
+    if enable_network:
+        from network.service import NetworkService
+
+        network = NetworkService(config, state, bus, shared_slots)
+        network.start()
+        logger.info("Network service started")
+
+    # ── 9. Supervisor ─────────────────────────────────────────────
+    supervisor = NodeSupervisor(config, state, bus, ai_factory)
+    supervisor.capture_process = capture_proc
+    supervisor.ai_process = ai_proc
+    supervisor.start()
+    logger.info("Supervisor started")
+
+    # ── 10. Signal Handling ───────────────────────────────────────
+    def _shutdown(signum=None, frame=None):
+        logger.info("Shutdown signal received")
+        stop_event.set()
+        bus.publish(TOPIC_SHUTDOWN, {"reason": "signal"})
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    # ── 11. Display or Headless Loop ──────────────────────────────
+    try:
         if enable_display:
-            self.output = OutputManager(
-                self.config,
-                on_manual_trigger=self._on_manual_trigger,
+            from display.app import DisplayApp
+
+            display = DisplayApp(
+                config, shared_slots, bus,
+                on_manual_trigger=lambda: bus.publish(TOPIC_DETECTION, {
+                    "model_name": "manual",
+                    "num_detections": 1,
+                    "frame_id": shared_slots.latest_frame_id,
+                    "timestamp": time.time(),
+                    "xyxy": [],
+                    "confidence": [],
+                    "class_id": [],
+                }),
             )
-
-        # 4. Network Manager (central unit communication)
-        self.network = None
-        if enable_network:
-            self.network = NetworkManager(
-                self.config,
-                on_road_update=self.output.apply_road_update if self.output else None,
-                on_accident_cleared=self.output.clear_accident if self.output else None,
-            )
-
-        # 5. Input Manager (camera or video → buffer)
-        self.input = InputManager(
-            self.config,
-            self.buffer,
-            video_path=video_path,
-            on_frame=self.output.push_input_frame if self.output else None,
-            on_imx500_detection=self._on_imx500_detection if camera_model == 'imx500' else None,
-        )
-
-        # 6. AI Manager (buffer → inference → callbacks)
-        self.ai = None
-        if enable_ai:
-            self.ai = AIManager(
-                self.config,
-                self.buffer,
-                on_detection=self._on_ai_detection,
-                on_frame_processed=self.output.push_ai_frame if self.output else None,
-            )
-            self.logger.info(f"AI Manager ready — models: {self.ai.loaded_models}")
-
-        # Lifecycle
-        self.running = False
-        self._setup_signals()
-
-    def _setup_signals(self):
-        """Handle OS signals for graceful shutdown."""
-        def handler(sig, frame):
-            self.logger.info("Shutdown signal received")
-            self.stop()
-        signal.signal(signal.SIGINT, handler)
-        signal.signal(signal.SIGTERM, handler)
-
-    def start(self):
-        """Start all services and enter the main loop."""
-        self.logger.info("Starting Safespace Node...")
-
-        # Start input pipeline
-        if not self.input.start():
-            self.logger.error("Input source failed to start — exiting")
-            return
-
-        # Start AI inference loop
-        if self.ai:
-            self.ai.start()
-
-        # Start network (heartbeats + socket connections)
-        if self.network:
-            self.network.start()
-
-        self.running = True
-        self.logger.info("Safespace Node is running.")
-
-        if self.output:
-            # Display event loop BLOCKS — runs on the main thread.
-            # Input and AI run in their own background threads.
-            self.logger.info("Starting display (Qt event loop)...")
-            self.output.start()
-            # When the window is closed, Qt returns here — shut down.
-            self.stop()
+            logger.info("Starting display (Qt event loop)...")
+            display.start()  # blocks until window closed
         else:
-            # Headless mode — simple loop
-            self.logger.info("Headless mode. Press Ctrl+C to stop.")
-            try:
-                while self.running:
-                    if not self.input.is_running:
-                        self.logger.info("Input source stopped — shutting down")
-                        break
-                    time.sleep(0.5)
-            except KeyboardInterrupt:
-                pass
-            finally:
-                self.stop()
+            logger.info("Headless mode — press Ctrl+C to stop")
+            while not stop_event.is_set():
+                time.sleep(1)
 
-    def stop(self):
-        """Cleanly shutdown all services."""
-        if not self.running:
-            return
-        self.running = False
-        self.logger.info("Stopping Safespace Node...")
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt")
+    finally:
+        # ── Cleanup ───────────────────────────────────────────────
+        logger.info("Shutting down...")
+        stop_event.set()
+        supervisor.stop()
 
-        if self.ai:
-            self.ai.stop()
-        if self.network:
-            self.network.stop()
-        self.input.stop()
+        if network:
+            network.stop()
 
-        self.logger.info("Safespace Node stopped.")
+        # Wait for child processes
+        if ai_proc and ai_proc.is_alive():
+            ai_proc.terminate()
+            ai_proc.join(timeout=5)
+        if capture_proc.is_alive():
+            capture_proc.terminate()
+            capture_proc.join(timeout=5)
 
-    # ── Callbacks ─────────────────────────────────────────────────
-
-    def _on_ai_detection(self, model_name: str, detections, frame):
-        """
-        Called by AIManager when a model produces detections.
-
-        Args:
-            model_name: Name of the model (e.g. "accident_detection")
-            detections: supervision.Detections object
-            frame: The frame where detection occurred
-        """
-        self.logger.warning(
-            f"AI DETECTION [{model_name}]: {len(detections)} object(s) detected"
-        )
-
-        # Update the display with the accident
-        if self.output:
-            self.output.on_accident_detected(model_name, detections, frame)
-
-        # Report to central unit
-        if self.network:
-            self.network.report_accident(detections, frame)
-
-    def _on_imx500_detection(self, model_name: str, detections: dict, frame):
-        """
-        Called by InputManager when IMX500 produces detections.
-
-        Args:
-            model_name: "imx500"
-            detections: Dict with keys: boxes, scores, class_ids
-            frame: The frame where detection occurred
-        """
-        num_detections = len(detections.get("boxes", [])) if detections else 0
-        if num_detections > 0:
-            self.logger.warning(
-                f"IMX500 DETECTION: {num_detections} object(s) detected"
-            )
-
-        # Update the display with the detections
-        if self.output:
-            self.output.on_imx500_detected(detections, frame)
-
-    def _on_manual_trigger(self):
-        """Called when the user presses SPACE on the display."""
-        self.logger.info("Manual accident report triggered by user!")
-        if self.output:
-            self.output.trigger_accident_alert()
+        bus.close()
+        shared_slots.close()
+        logger.info("Safespace Node stopped.")
 
 
 if __name__ == "__main__":
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    args = parse_args()
-    node = SafespaceNode(
-        video_path=args.video,
-        enable_ai=not args.no_ai,
-        enable_display=not args.no_display,
-        enable_network=not args.no_network,
-    )
-    node.start()
+    # Use 'spawn' for clean child processes (required on some Linux configs)
+    mp.set_start_method("fork", force=True)
+    main()
