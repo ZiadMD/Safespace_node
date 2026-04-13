@@ -1,7 +1,36 @@
 # Requirements for Raspberry Pi (CPU only)
 # Install with: pip install -r requirements-raspi.txt
 
--r requirements.txt
+# NOTE:
+# PyQt6 should be installed from Raspberry Pi OS packages instead of pip.
+# pip often falls back to a source build on ARM and fails due to missing qmake/Qt toolchain.
+#
+# Install once on the OS:
+#   sudo apt update
+#   sudo apt install -y python3-pyqt6
+#
+# If you use a venv, create it with system packages so it can see apt-installed PyQt6:
+#   python3 -m venv .venv --system-site-packages
+
+# GUI is provided by apt (python3-pyqt6), so do not include PyQt6 here.
+
+# Computer Vision
+opencv-python
+numpy<2
+ultralytics
+supervision
+onnxruntime
+
+# System Monitoring
+psutil
+
+# Configuration
+PyYAML
+
+# Networking
+requests
+python-socketio
+websocket-client
 
 # Deep Learning - CPU only
 torch --index-url https://download.pytorch.org/whl/cpu

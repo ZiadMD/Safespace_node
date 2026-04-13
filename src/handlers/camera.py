@@ -23,8 +23,10 @@ try:
     from picamera2.devices import IMX500
     from picamera2.devices.imx500 import NetworkIntrinsics
     _HAS_PICAMERA2 = True
-except ImportError:
+    _PICAMERA2_IMPORT_ERROR = None
+except Exception as exc:
     _HAS_PICAMERA2 = False
+    _PICAMERA2_IMPORT_ERROR = exc
 
 
 class CameraHandler:
@@ -76,9 +78,19 @@ class CameraHandler:
     def _start_picamera(self) -> bool:
         """Open a Raspberry Pi camera via picamera2."""
         if not _HAS_PICAMERA2:
+            hint = ""
+            if _PICAMERA2_IMPORT_ERROR is not None:
+                err = str(_PICAMERA2_IMPORT_ERROR)
+                if "numpy.dtype size changed" in err:
+                    hint = (
+                        " Detected NumPy ABI mismatch with picamera2/simplejpeg."
+                        " Install a NumPy 1.x version in this environment"
+                        " (for example: pip install 'numpy<2')."
+                    )
             raise ImportError(
                 "picamera2 is not available. "
                 "Install it on Raspberry Pi: sudo apt install python3-picamera2"
+                f". Import error: {_PICAMERA2_IMPORT_ERROR!s}.{hint}"
             )
         self.camera = Picamera2()
         res = self.config.get('camera.resolution', {})
@@ -95,9 +107,19 @@ class CameraHandler:
     def _start_imx500(self) -> bool:
         """Open the IMX500 camera with on-chip AI model."""
         if not _HAS_PICAMERA2:
+            hint = ""
+            if _PICAMERA2_IMPORT_ERROR is not None:
+                err = str(_PICAMERA2_IMPORT_ERROR)
+                if "numpy.dtype size changed" in err:
+                    hint = (
+                        " Detected NumPy ABI mismatch with picamera2/simplejpeg."
+                        " Install a NumPy 1.x version in this environment"
+                        " (for example: pip install 'numpy<2')."
+                    )
             raise ImportError(
                 "picamera2 is not available. "
                 "Install it on Raspberry Pi: sudo apt install python3-picamera2"
+                f". Import error: {_PICAMERA2_IMPORT_ERROR!s}.{hint}"
             )
 
         model_path = self.config.get('camera.imx500.model_path', '')
@@ -145,7 +167,7 @@ class CameraHandler:
         if self.camera is None:
             return
         try:
-            if self.camera_type == 'imx500':
+            if self.camera_type in ('imx500', 'picam'):
                 self.camera.stop()
                 self.camera.close()
             else:
