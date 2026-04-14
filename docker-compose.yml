@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  safespace-node:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    devices:
+      - "/dev/video0:/dev/video0" # Forward your camera
+    environment:
+      - DISPLAY=$DISPLAY
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix # Forward X11 socket for QT GUI
+    network_mode: "host"
+    privileged: true
