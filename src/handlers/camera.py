@@ -130,7 +130,7 @@ class CameraHandler:
             )
 
         self.logger.info(f"Loading IMX500 model: {model_path}")
-        self._imx500 = IMX500(model_path)
+        self._imx500: IMX500 = IMX500(model_path)
 
         intrinsics = self._imx500.network_intrinsics
         if intrinsics is None:
@@ -145,9 +145,7 @@ class CameraHandler:
             intrinsics.iou_threshold = self.config.get_float('camera.imx500.iou_threshold', 0.5)
         if hasattr(intrinsics, 'max_detections'):
             intrinsics.max_detections = self.config.get_int('camera.imx500.max_detections', 10)
-            
-        if self._imx500.network_intrinsics is None:
-            self._imx500.network_intrinsics = intrinsics
+        # Don't assign it back — already modified the object
 
         self.camera = Picamera2(self._imx500.camera_num)
         res = self.config.get('camera.resolution', {})

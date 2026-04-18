@@ -327,6 +327,18 @@ class NetworkManager:
         # Single detection → flat list; multiple → list of lists
         points = polygons[0] if len(polygons) == 1 else polygons
 
+        # ── Detailed Detections ───────────────────────────────────
+        detailed_detections = []
+        for i in range(len(detections)):
+            bbox = detections.xyxy[i]
+            conf = detections.confidence[i] if detections.confidence is not None else 1.0
+            cls_id = detections.class_id[i] if detections.class_id is not None else -1
+            detailed_detections.append({
+                "bbox": [int(x) for x in bbox],
+                "confidence": float(conf),
+                "classId": int(cls_id)
+            })
+
         # ── Encode frame as base64 JPEG ───────────────────────────
         media: List[str] = []
         try:
@@ -346,6 +358,7 @@ class NetworkManager:
                 "baseWidth": self._cam_width,
                 "baseHeight": self._cam_height,
             },
+            "detections": detailed_detections,
             "media": media,
         }
 
