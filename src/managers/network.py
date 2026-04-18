@@ -323,6 +323,7 @@ class NetworkManager:
                 {"x": int(x2), "y": int(y2)},
                 {"x": int(x1), "y": int(y2)},
             ])
+            
 
         # Single detection → flat list; multiple → list of lists
         points = polygons[0] if len(polygons) == 1 else polygons
