@@ -145,7 +145,9 @@ class CameraHandler:
             intrinsics.iou_threshold = self.config.get_float('camera.imx500.iou_threshold', 0.5)
         if hasattr(intrinsics, 'max_detections'):
             intrinsics.max_detections = self.config.get_int('camera.imx500.max_detections', 10)
-        # Don't assign it back — already modified the object
+            
+        if self._imx500.network_intrinsics is None:
+            self._imx500.network_intrinsics = intrinsics
 
         self.camera = Picamera2(self._imx500.camera_num)
         res = self.config.get('camera.resolution', {})
