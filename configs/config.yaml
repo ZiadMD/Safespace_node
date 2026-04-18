@@ -12,8 +12,8 @@ camera:
     width: 640
     height: 640
   fps: 30
-  # model: "imx500" # Use "IMX500" when using the raspberry pi camera module
-  model: "picam"
+  model: "imx500" # Use "IMX500" when using the raspberry pi camera module
+  # model: "picam"
   # model: "native" # Use "native" for the default camera or specify a custom model if needed
   loop_video: true # Loop video playback when using video input
   imx500:
