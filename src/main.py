@@ -225,15 +225,49 @@ class SafespaceNode:
             detections: Dict with keys: boxes, scores, class_ids
             frame: The frame where detection occurred
         """
+        import numpy as np
+        import supervision as sv
+        
         num_detections = len(detections.get("boxes", [])) if detections else 0
         if num_detections > 0:
             self.logger.warning(
                 f"IMX500 DETECTION: {num_detections} object(s) detected"
             )
+            
+            orig_h, orig_w = frame.shape[:2]
+            boxes = np.array(detections["boxes"])
+            # Assuming imx500 boxes are [ymin, xmin, ymax, xmax] normalized if <= 1.0
+            if boxes.max() <= 1.0:
+                xyxy = np.zeros_like(boxes)
+                xyxy[:, 0] = boxes[:, 1] * orig_w # xmin
+                xyxy[:, 1] = boxes[:, 0] * orig_h # ymin
+                xyxy[:, 2] = boxes[:, 3] * orig_w # xmax
+                xyxy[:, 3] = boxes[:, 2] * orig_h # ymax
+            else:
+                # Absolute [xmin, ymin, xmax, ymax]
+                xyxy = boxes
 
-        # Update the display with the detections
-        if self.output:
-            self.output.on_imx500_detected(detections, frame)
+            sv_detections = sv.Detections(
+                xyxy=xyxy,
+                confidence=np.array(detections["scores"]),
+                class_id=np.array(detections["class_ids"]).astype(int)
+            )
+
+            box_annotator = sv.BoxAnnotator(thickness=2)
+            label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
+            
+            labels = [f"class_{c} {conf:.2f}" for c, conf in zip(sv_detections.class_id, sv_detections.confidence)]
+            annotated = box_annotator.annotate(frame.copy(), sv_detections)
+            annotated = label_annotator.annotate(annotated, sv_detections, labels)
+
+            if self.output:
+                self.output.on_imx500_detected(sv_detections, annotated)
+
+            if self.network:
+                self.network.report_accident(sv_detections, frame)
+        else:
+            if self.output:
+                self.output.on_imx500_detected(None, frame)
 
     def _on_manual_trigger(self):
         """Called when the user presses SPACE on the display."""

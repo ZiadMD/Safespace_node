@@ -82,19 +82,22 @@ class OutputManager:
             self._accident_active = True
             self.display.set_accident_alert(True)
 
-    def on_imx500_detected(self, detections: dict, frame):
+    def on_imx500_detected(self, detections, frame):
         """
         Called when IMX500 on-chip inference produces detections.
 
         Args:
-            detections: Dict with keys: boxes, scores, class_ids
-            frame: The frame (numpy array) where detections were seen
+            detections: supervision.Detections object or None
+            frame: The annotated frame (numpy array) to push to display
         """
-        num = len(detections.get("boxes", [])) if detections else 0
+        num = len(detections) if detections is not None else 0
         if num > 0:
-            self.logger.warning(f"IMX500 detections: {num} object(s)")
-            # Push annotated frame to display for visualization
-            self.display.push_ai_frame(frame)
+            self.logger.warning(f"IMX500 UI Alert: {num} object(s)")
+            if not self._accident_active:
+                self._accident_active = True
+                self.display.set_accident_alert(True)
+        # Push annotated frame to display for visualization
+        self.display.push_ai_frame(frame)
 
     # ── Server Road Update ────────────────────────────────────────
 
