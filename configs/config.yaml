@@ -18,7 +18,7 @@ camera:
   loop_video: true # Loop video playback when using video input
   imx500:
     model_path: models/best_MSamir_imx.rpk # Path to the compiled .rpk model for on-chip inference
-    confidence: 0.55 # Minimum confidence threshold for IMX500 detections
+    confidence: 0.8 # Minimum confidence threshold for IMX500 detections
     iou_threshold: 0.65 # IOU threshold for NMS on IMX500 output tensors
     max_detections: 10 # Maximum number of detections per frame
 

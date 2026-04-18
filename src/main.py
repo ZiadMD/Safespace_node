@@ -253,18 +253,27 @@ class SafespaceNode:
                 class_id=np.array(detections["class_ids"]).astype(int)
             )
 
-            box_annotator = sv.BoxAnnotator(thickness=2)
-            label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
-            
-            labels = [f"class_{c} {conf:.2f}" for c, conf in zip(sv_detections.class_id, sv_detections.confidence)]
-            annotated = box_annotator.annotate(frame.copy(), sv_detections)
-            annotated = label_annotator.annotate(annotated, sv_detections, labels)
+            # IMX500 returns zero-padded tensors (e.g. 300 boxes). Filter by confidence.
+            conf_thresh = self.config.get_float('camera.imx500.confidence', 0.5)
+            mask = sv_detections.confidence >= conf_thresh
+            sv_detections = sv_detections[mask]
 
-            if self.output:
-                self.output.on_imx500_detected(sv_detections, annotated)
+            if len(sv_detections) > 0:
+                box_annotator = sv.BoxAnnotator(thickness=2)
+                label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
+                
+                labels = [f"class_{c} {conf:.2f}" for c, conf in zip(sv_detections.class_id, sv_detections.confidence)]
+                annotated = box_annotator.annotate(frame.copy(), sv_detections)
+                annotated = label_annotator.annotate(annotated, sv_detections, labels)
 
-            if self.network:
-                self.network.report_accident(sv_detections, frame)
+                if self.output:
+                    self.output.on_imx500_detected(sv_detections, annotated)
+
+                if self.network:
+                    self.network.report_accident(sv_detections, frame)
+            else:
+                if self.output:
+                    self.output.on_imx500_detected(None, frame)
         else:
             if self.output:
                 self.output.on_imx500_detected(None, frame)
