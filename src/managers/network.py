@@ -14,7 +14,6 @@ Architecture:
               ├── Socket.IO   → emit accident, receive ACK
               └── Raw WS      → receive commands from Central Unit
 """
-import json
 import base64
 import time
 import shutil
@@ -302,17 +301,17 @@ class NetworkManager:
         """
         Convert supervision.Detections + frame into the backend payload.
 
-        Payload shape (all top-level values are strings):
+        Payload shape:
             {
-                "lat": "30.0444",
-                "long": "31.2357",
-                "lanNumber": "2",
-                "nodeId": "node-12",
-                "accidentPolygon": "{\"points\":[...],\"baseWidth\":640,\"baseHeight\":480}"
+                "lat": float, "long": float,
+                "lanNumber": int,
+                "nodeId": str,
+                "accidentPolygon": { "points": [...], "baseWidth": int, "baseHeight": int },
+                "media": ["data:image/jpeg;base64,..."]
             }
 
-        accidentPolygon is a JSON-encoded string containing polygon points,
-        detections detail, frame dimensions, and base64-encoded media.
+        When multiple detections exist, accidentPolygon.points is a list of
+        polygon arrays (one per detection).
         """
         # ── Polygon(s) from bounding boxes ────────────────────────
         polygons: List[List[Dict[str, int]]] = []
@@ -334,6 +333,7 @@ class NetworkManager:
             bbox = detections.xyxy[i]
             conf = detections.confidence[i] if detections.confidence is not None else 1.0
             cls_id = detections.class_id[i] if detections.class_id is not None else -1
+            print(f'bbox: {bbox}')
             detailed_detections.append({
                 "bbox": [int(x) for x in bbox],
                 "confidence": float(conf),
@@ -349,21 +349,18 @@ class NetworkManager:
         except Exception as e:
             self.logger.warning(f"Failed to encode frame: {e}")
 
-        # ── Build accidentPolygon as a JSON string ────────────────
-        polygon_obj = {
-            "points": points,
-            "baseWidth": self._cam_width,
-            "baseHeight": self._cam_height,
+        return {
+            "lat": float(self._lat),
+            "long": float(self._long),
+            "lanNumber": self._num_lanes,
+            "nodeId": self._node_id,
+            "accidentPolygon": {
+                "points": points,
+                "baseWidth": self._cam_width,
+                "baseHeight": self._cam_height,
+            },
             "detections": detailed_detections,
             "media": media,
-        }
-
-        return {
-            "lat": str(self._lat),
-            "long": str(self._long),
-            "lanNumber": str(self._num_lanes),
-            "nodeId": self._node_id,
-            "accidentPolygon": json.dumps(polygon_obj),
         }
 
     # ══════════════════════════════════════════════════════════════
