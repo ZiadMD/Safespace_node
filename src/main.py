@@ -230,10 +230,6 @@ class SafespaceNode:
         
         num_detections = len(detections.get("boxes", [])) if detections else 0
         if num_detections > 0:
-            self.logger.warning(
-                f"IMX500 DETECTION: {num_detections} object(s) detected"
-            )
-            
             orig_h, orig_w = frame.shape[:2]
             boxes = np.array(detections["boxes"])
             # Assuming imx500 boxes are [ymin, xmin, ymax, xmax] normalized if <= 1.0
@@ -259,6 +255,9 @@ class SafespaceNode:
             sv_detections = sv_detections[mask]
 
             if len(sv_detections) > 0:
+                self.logger.warning(
+                    f"IMX500 DETECTION: {len(sv_detections)} object(s) detected"
+                )
                 box_annotator = sv.BoxAnnotator(thickness=2)
                 label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
                 
