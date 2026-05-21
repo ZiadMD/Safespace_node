@@ -37,6 +37,9 @@ class OutputManager:
         # Display handler
         self.display = DisplayHandler(config, on_manual_trigger=on_manual_trigger)
 
+        # GPS handler reference (injected after init)
+        self._gps = None
+
         # Track current state
         self._accident_active = False
         self._default_speed = config.get_int('node.default_speed', 120)

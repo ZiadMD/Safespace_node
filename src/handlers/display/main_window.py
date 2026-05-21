@@ -4,7 +4,7 @@ Main Window — full Safespace dashboard layout with dev / prod modes.
 Dev mode:   video feeds (input + AI) with FPS, lanes, speed, system monitor
 Prod mode:  lanes, speed, accident warning banner
 """
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Any
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -32,6 +32,7 @@ class MainWindow(QMainWindow):
     reset_display_signal = pyqtSignal()               # no args
     push_input_frame_signal = pyqtSignal(object)      # numpy BGR frame
     push_ai_frame_signal = pyqtSignal(object)         # numpy BGR frame (annotated)
+    update_gps_signal = pyqtSignal(bool)              # fix status
 
     def __init__(self, config: Config, on_manual_trigger: Optional[Callable] = None):
         super().__init__()
@@ -76,6 +77,7 @@ class MainWindow(QMainWindow):
         self.reset_display_signal.connect(self._reset_display)
         self.push_input_frame_signal.connect(self._push_input_frame)
         self.push_ai_frame_signal.connect(self._push_ai_frame)
+        self.update_gps_signal.connect(self._update_gps_indicator)
 
         # Accident flash timer
         self._flash_timer = QTimer(self)
@@ -232,6 +234,12 @@ class MainWindow(QMainWindow):
         status.setFont(QFont("Segoe UI", 9))
         status.setStyleSheet("color: #555555; background: transparent;")
         root.addWidget(status)
+        # GPS indicator
+        self.gps_label = QLabel("●  GPS: Searching...")
+        self.gps_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.gps_label.setFont(QFont("Segoe UI", 9))
+        self.gps_label.setStyleSheet("color: #ff9900; background: transparent;")
+        root.addWidget(self.gps_label)
 
     # ── Thread-safe public API ────────────────────────────────────
 
@@ -252,6 +260,10 @@ class MainWindow(QMainWindow):
 
     def push_ai_frame(self, frame):
         self.push_ai_frame_signal.emit(frame)
+
+    def update_gps_status(self, has_fix: bool):
+        """Called from outside Qt thread to update GPS indicator."""
+        self.update_gps_signal.emit(has_fix)
 
     # ── Slots (run on Qt main thread) ─────────────────────────────
 
@@ -290,6 +302,14 @@ class MainWindow(QMainWindow):
     def _flash_toggle(self):
         self._flash_visible = not self._flash_visible
         self.accident_banner.setVisible(self._flash_visible)
+
+    def _update_gps_indicator(self, has_fix: bool):
+        if has_fix:
+            self.gps_label.setText("●  GPS: Fix Acquired")
+            self.gps_label.setStyleSheet("color: #00ff88; background: transparent;")
+        else:
+            self.gps_label.setText("●  GPS: Searching...")
+            self.gps_label.setStyleSheet("color: #ff9900; background: transparent;")
 
     # ── Keyboard ──────────────────────────────────────────────────
 

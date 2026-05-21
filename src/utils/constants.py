@@ -54,3 +54,8 @@ BACKEND_LANE_STATUS_MAP = {
     "left": LANE_STATUS_LEFT,
     "right": LANE_STATUS_RIGHT,
 }
+
+# GPS
+GPS_NO_FIX_LOCATION = {"lat": 0.0, "long": 0.0, "fix": False}
+GPS_FAILURE_TYPE = "gps_failure"
+
