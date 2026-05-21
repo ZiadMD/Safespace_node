@@ -81,6 +81,7 @@ class NetworkManager:
         self._accident_cooldown: int = config.get_int("network.accident_cooldown", 30)
 
         # Node info (for payloads)
+        self._gps = None  # injected after init via set_gps_handler()
         self._lat = config.get("node.location.lat", "0")
         self._long = config.get("node.location.long", "0")
         self._num_lanes: int = config.get_int("node.lanes", 4)
@@ -158,6 +159,7 @@ class NetworkManager:
                     "status": "online",
                     "uptimeSec": int(time.time() - self._start_time),
                     "health": self._get_health_metrics(),
+                    "location": self._gps.get_location() if self._gps else {"lat": float(self._lat), "long": float(self._long), "fix": False},
                     "firmwareVersion": self._firmware_version,
                     "modelVersion": self._model_version,
                 }
@@ -227,6 +229,11 @@ class NetworkManager:
     def update_fps(self, fps: float):
         """Called externally to update the current FPS for heartbeat reporting."""
         self._current_fps = fps
+
+    def set_gps_handler(self, gps_handler):
+        """Inject GPS handler so accident reports use live coordinates."""
+        self._gps = gps_handler
+        self.logger.info("GPS handler attached to NetworkManager")
 
     # ══════════════════════════════════════════════════════════════
     # Registration (reserved — not implemented on server yet)
@@ -350,9 +357,20 @@ class NetworkManager:
         except Exception as e:
             self.logger.warning(f"Failed to encode frame: {e}")
 
+        # Use live GPS if available, fall back to static config
+        if self._gps:
+            _loc = self._gps.get_location()
+            _lat = _loc["lat"]
+            _lon = _loc["long"]
+            if not _loc["fix"]:
+                self.logger.debug("GPS no fix � using config fallback coordinates")
+        else:
+            _lat = float(self._lat)
+            _lon = float(self._long)
+
         return {
-            "lat": float(self._lat),
-            "long": float(self._long),
+            "lat": _lat,
+            "long": _lon,
             "lanNumber": self._num_lanes,
             "nodeId": self._node_id,
             "accidentPolygon": {

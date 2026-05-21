@@ -20,6 +20,7 @@ from managers.input import InputManager
 from managers.ai import AIManager
 from managers.output import OutputManager
 from managers.network import NetworkManager
+from handlers.gps_handler import GPSHandler
 
 
 def parse_args():
@@ -85,7 +86,11 @@ class SafespaceNode:
         if not enable_network:
             self.logger.info("Network disabled (offline mode)")
 
-        # 2. Shared Frame Buffer
+        # 2. GPS Handler
+        self.gps = GPSHandler(self.config)
+        self.gps.start()
+
+        # 3. Shared Frame Buffer
         self.buffer = FrameBuffer(self.config)
 
         # 3. Output Manager + Display (initialised early so callbacks can reference it)
@@ -104,6 +109,10 @@ class SafespaceNode:
                 on_road_update=self.output.apply_road_update if self.output else None,
                 on_accident_cleared=self.output.clear_accident if self.output else None,
             )
+
+        # Attach GPS to network manager
+        if self.network:
+            self.network.set_gps_handler(self.gps)
 
         # 5. Input Manager (camera or video → buffer)
         self.input = InputManager(
@@ -190,6 +199,8 @@ class SafespaceNode:
         if self.network:
             self.network.stop()
         self.input.stop()
+        if self.gps:
+            self.gps.stop()
 
         self.logger.info("Safespace Node stopped.")
 

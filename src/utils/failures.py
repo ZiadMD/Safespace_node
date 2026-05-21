@@ -25,6 +25,10 @@ class DisplayError(SafespaceError):
     """Exception raised for GUI-related failures."""
     pass
 
+class GPSError(SafespaceError):
+    """Exception raised for GPS-related failures."""
+    pass
+
 class FailureManager:
     """Tracks and manages recurring failures to improve system resilience."""
     
