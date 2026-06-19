@@ -2,10 +2,13 @@
 Camera Handler - Captures frames from a physical camera (native webcam or IMX500).
 
 Modes:
-  - native:  Uses OpenCV VideoCapture (development / laptop).
-  - imx500:  Uses picamera2 with the Sony IMX500 AI accelerator (Raspberry Pi production).
-             In IMX500 mode the on-chip NPU runs inference and returns detections
-             alongside each frame — no separate AI Manager needed.
+  - native:     Uses OpenCV VideoCapture (development / laptop).
+  - picam:      Uses picamera2 (Raspberry Pi camera, no AI).
+  - imx500:     Uses picamera2 + Sony IMX500 on-chip NPU. Loads a .rpk model and
+                returns detections alongside each frame — AIManager is disabled.
+  - imx500-raw: Uses the IMX500 camera via picamera2 but does NOT load any on-chip
+                model. Behaves like a plain picamera2 source so AIManager runs
+                software inference normally. Use this for RTSP streaming with AI.
 
 Produces raw frames for the FrameBuffer.
 """
@@ -50,6 +53,8 @@ class CameraHandler:
         try:
             if self.camera_type == 'imx500':
                 return self._start_imx500()
+            elif self.camera_type == 'imx500-raw':
+                return self._start_imx500_raw()
             elif self.camera_type == 'picam':
                 return self._start_picamera()
             else:
@@ -104,6 +109,43 @@ class CameraHandler:
         self.logger.info("Camera started (picamera)")
         return True
     
+    def _start_imx500_raw(self) -> bool:
+        """
+        Open the IMX500 camera via picamera2 WITHOUT loading any on-chip model.
+
+        The IMX500 sensor is used as a plain camera — software AI (AIManager)
+        runs normally. Use this mode when RTSP streaming is needed alongside
+        software inference.
+        """
+        if not _HAS_PICAMERA2:
+            hint = ""
+            if _PICAMERA2_IMPORT_ERROR is not None:
+                err = str(_PICAMERA2_IMPORT_ERROR)
+                if "numpy.dtype size changed" in err:
+                    hint = (
+                        " Detected NumPy ABI mismatch. "
+                        "Install numpy<2 in this environment."
+                    )
+            raise ImportError(
+                "picamera2 is not available. "
+                "Install it on Raspberry Pi: sudo apt install python3-picamera2"
+                f". Import error: {_PICAMERA2_IMPORT_ERROR!s}.{hint}"
+            )
+
+        # IMX500 camera index (configurable in case of multi-camera setups)
+        cam_index = self.config.get_int('camera.imx500.camera_num', 0)
+        self.camera = Picamera2(cam_index)
+        res = self.config.get('camera.resolution', {})
+        cam_config = self.camera.create_preview_configuration(
+            main={"size": (res.get('width', 640), res.get('height', 640))},
+            controls={"FrameRate": self.config.get_int('camera.fps', 30)},
+        )
+        self.camera.configure(cam_config)
+        self.camera.start()
+        self._running = True
+        self.logger.info(f"Camera started (IMX500 raw, camera_num={cam_index} — no on-chip model)")
+        return True
+
     def _start_imx500(self) -> bool:
         """Open the IMX500 camera with on-chip AI model."""
         if not _HAS_PICAMERA2:
@@ -167,7 +209,7 @@ class CameraHandler:
         if self.camera is None:
             return
         try:
-            if self.camera_type in ('imx500', 'picam'):
+            if self.camera_type in ('imx500', 'imx500-raw', 'picam'):
                 self.camera.stop()
                 self.camera.close()
             else:
@@ -188,7 +230,7 @@ class CameraHandler:
         try:
             if self.camera_type == 'imx500':
                 return self._read_frame_imx500()
-            elif self.camera_type == 'picam':
+            elif self.camera_type in ('picam', 'imx500-raw'):
                 return self._read_frame_picam()
             else:
                 ret, frame = self.camera.read()
@@ -249,4 +291,5 @@ class CameraHandler:
 
     @property
     def is_imx500(self) -> bool:
+        """True only for on-chip inference mode (not imx500-raw)."""
         return self.camera_type == 'imx500'

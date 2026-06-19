@@ -20,6 +20,7 @@ from managers.input import InputManager
 from managers.ai import AIManager
 from managers.output import OutputManager
 from managers.network import NetworkManager
+from managers.stream import StreamManager
 from handlers.gps_handler import GPSHandler
 
 
@@ -47,6 +48,11 @@ def parse_args():
         action='store_true',
         help='Disable network communication with central unit'
     )
+    parser.add_argument(
+        '--no-stream',
+        action='store_true',
+        help='Disable RTSP streaming (overrides stream.enabled in config)'
+    )
     return parser.parse_args()
 
 
@@ -64,18 +70,20 @@ class SafespaceNode:
     """
 
     def __init__(self, video_path: str = None, enable_ai: bool = True,
-                 enable_display: bool = True, enable_network: bool = True):
+                 enable_display: bool = True, enable_network: bool = True,
+                 enable_stream: bool = True):
         # 1. Configuration & Logging
         self.config = Config()
         Logger.setup(self.config.get('logging', {}))
         self.logger = Logger("SafespaceNode")
         self.logger.info("Initializing Safespace Node...")
 
-        # Check if using IMX500 (on-chip inference) — if so, disable software AI
+        # Check camera mode — only on-chip IMX500 inference disables software AI
         camera_model = self.config.get('camera.model', 'native')
         if camera_model == 'imx500':
             self.logger.info("IMX500 mode detected — disabling software AI (using on-chip inference)")
             enable_ai = False
+        # imx500-raw uses the IMX500 sensor as a plain camera; software AI stays enabled
 
         if video_path:
             self.logger.info(f"Video test mode: {video_path}")
@@ -93,7 +101,16 @@ class SafespaceNode:
         # 3. Shared Frame Buffer
         self.buffer = FrameBuffer(self.config)
 
-        # 3. Output Manager + Display (initialised early so callbacks can reference it)
+        # 4. Stream Manager (RTSP — MediaMTX + ffmpeg)
+        self.stream = None
+        stream_enabled = enable_stream and self.config.get_bool('stream.enabled', False)
+        if stream_enabled:
+            self.stream = StreamManager(self.config, self.buffer)
+            self.logger.info("RTSP streaming enabled")
+        else:
+            self.logger.info("RTSP streaming disabled")
+
+        # 6. Output Manager + Display (initialised early so callbacks can reference it)
         self.output = None
         if enable_display:
             self.output = OutputManager(
@@ -101,7 +118,7 @@ class SafespaceNode:
                 on_manual_trigger=self._on_manual_trigger,
             )
 
-        # 4. Network Manager (central unit communication)
+        # 7. Network Manager (central unit communication)
         self.network = None
         if enable_network:
             self.network = NetworkManager(
@@ -114,7 +131,7 @@ class SafespaceNode:
         if self.network:
             self.network.set_gps_handler(self.gps)
 
-        # 5. Input Manager (camera or video → buffer)
+        # 8. Input Manager (camera or video → buffer)
         self.input = InputManager(
             self.config,
             self.buffer,
@@ -123,7 +140,7 @@ class SafespaceNode:
             on_imx500_detection=self._on_imx500_detection if camera_model == 'imx500' else None,
         )
 
-        # 6. AI Manager (buffer → inference → callbacks)
+        # 9. AI Manager (buffer → inference → callbacks)
         self.ai = None
         if enable_ai:
             self.ai = AIManager(
@@ -158,6 +175,10 @@ class SafespaceNode:
         # Start AI inference loop
         if self.ai:
             self.ai.start()
+
+        # Start RTSP stream (MediaMTX + ffmpeg)
+        if self.stream:
+            self.stream.start()
 
         # Start network (heartbeats + socket connections)
         if self.network:
@@ -196,6 +217,8 @@ class SafespaceNode:
 
         if self.ai:
             self.ai.stop()
+        if self.stream:
+            self.stream.stop()
         if self.network:
             self.network.stop()
         self.input.stop()
@@ -303,5 +326,6 @@ if __name__ == "__main__":
         enable_ai=not args.no_ai,
         enable_display=not args.no_display,
         enable_network=not args.no_network,
+        enable_stream=not args.no_stream,
     )
     node.start()
