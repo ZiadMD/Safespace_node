@@ -19,6 +19,7 @@ Safespace Node is an edge-based road safety monitoring system that runs on a Ras
 | Computer vision | OpenCV (`cv2`), `supervision` |
 | AI inference | Ultralytics YOLO (`.pt`), ONNX Runtime (`.onnx`) |
 | Camera (Pi) | `picamera2` + Sony IMX500 NPU |
+| RTSP streaming | MediaMTX (server) + `ffmpeg` subprocess (publisher) |
 | Networking | `python-socketio`, `websocket-client`, `requests` |
 | Config | PyYAML — single `configs/config.yaml` |
 | Logging | Python `logging` + `RotatingFileHandler` |
@@ -36,11 +37,14 @@ SafespaceNode  (src/main.py)
 ├── GPSHandler           SIM808 UART → live lat/long
 ├── FrameBuffer          thread-safe deque ring buffer (shared)
 ├── InputManager
-│   ├── CameraHandler    native (OpenCV) / picam / IMX500
+│   ├── CameraHandler    native (OpenCV) / picam / imx500 / imx500-raw
 │   └── VideoHandler     video file (dev/test mode)
 ├── AIManager
 │   ├── ModelLoader      auto-detects .pt → YOLO, .onnx → OnnxModel
 │   └── ModelDetection   inference + NMS + class filtering → sv.Detections
+├── StreamManager                           ← RTSP streaming
+│   ├── MediaMTX subprocess                 serves rtsp://<node-ip>:8554/live
+│   └── StreamHandler                       FrameBuffer → ffmpeg → MediaMTX
 ├── OutputManager
 │   └── DisplayHandler → MainWindow (PyQt6)
 │       ├── VideoFeedWidget   (dev mode: input feed + AI feed)
@@ -64,6 +68,7 @@ SafespaceNode  (src/main.py)
 | **SIOConnect** | `SocketHandler` | Connects the `python-socketio` client in a background thread. |
 | **WSCommandListener** | `SocketHandler` | `websocket-client` event loop; receives server commands; auto-reconnects with exponential backoff (max 30 s). |
 | **AccidentReport** *(transient)* | `NetworkManager` | Spawned per confirmed detection after cooldown. Encodes frame → base64 JPEG and emits `node_accident_detected` via Socket.IO. |
+| **RTSPStream** | `StreamHandler` | Pulls frames from `FrameBuffer` at `stream.fps`, pipes raw BGR bytes to ffmpeg stdin; ffmpeg publishes H.264 to MediaMTX. Restarts ffmpeg on crash with exponential backoff (2 s → 30 s). |
 
 ### Core data flow
 
@@ -88,9 +93,16 @@ Central Unit → WSCommandListener thread (raw WebSocket)
            └─ REJECTED  → on_accident_cleared() → reset_display_signal
 ```
 
-### IMX500 path (alternative to software AI)
+### IMX500 camera modes
 
-When `camera.model = "imx500"` in config, `SafespaceNode.__init__` **automatically sets `enable_ai = False`**. Detections come from the on-chip NPU:
+| `camera.model` | On-chip NPU | Software AI | RTSP stream |
+|---|---|---|---|
+| `imx500` | ✓ loads `.rpk` | ✗ disabled | optional |
+| `imx500-raw` | ✗ no model loaded | ✓ enabled | ✓ primary use case |
+| `picam` | ✗ | ✓ | optional |
+| `native` | ✗ | ✓ | optional |
+
+**`imx500` path (on-chip inference):** `SafespaceNode.__init__` sets `enable_ai = False` unconditionally. Detections come from the NPU:
 
 ```
 IMX500 picamera2 → _read_frame_imx500() → frame + np_outputs (boxes/scores/classes)
@@ -104,6 +116,25 @@ InputManager._capture_loop → on_imx500_detection callback
 
 IMX500 raw boxes: `[ymin, xmin, ymax, xmax]` normalized to [0,1] when ≤ 1.0; else absolute `[xmin, ymin, xmax, ymax]`.
 
+**`imx500-raw` path (RTSP streaming + software AI):** Opens the IMX500 camera via `picamera2` at `camera.imx500.camera_num` (default 0) without loading any `.rpk` model. Frame path is identical to `picam` mode. `AIManager` runs normally and `StreamManager` streams raw frames to MediaMTX.
+
+### RTSP streaming path
+
+```
+FrameBuffer → RTSPStream thread
+    └─ StreamHandler.get_latest_with_timestamp()
+          ↓ (throttled to stream.fps)
+       cv2.resize() if resolution differs
+          ↓
+       ffmpeg stdin (raw BGR bytes)
+          ↓
+       MediaMTX (rtsp://localhost:8554/live)
+          ↓
+       Central Unit pulls rtsp://<node-ip>:8554/live
+```
+
+`StreamManager` starts MediaMTX as a subprocess using `configs/mediamtx.yml`, waits 1.5 s for it to boot, then starts `StreamHandler`. If ffmpeg crashes it is restarted automatically with backoff capped at 30 s.
+
 ---
 
 ## Project Structure
@@ -111,7 +142,8 @@ IMX500 raw boxes: `[ymin, xmin, ymax, xmax]` normalized to [0,1] when ≤ 1.0; e
 ```
 Safespace_node/
 ├── configs/
-│   └── config.yaml          single config file — all settings
+│   ├── config.yaml          single config file — all settings
+│   └── mediamtx.yml         MediaMTX config — RTSP on :8554, single "live" path
 ├── models/
 │   ├── *.pt                 YOLO weights (gitignored / large)
 │   ├── *.onnx               ONNX weights
@@ -125,9 +157,11 @@ Safespace_node/
 │   │   ├── ai.py            AIManager — inference loop + model registry
 │   │   ├── input.py         InputManager — capture loop
 │   │   ├── output.py        OutputManager — display bridge
-│   │   └── network.py       NetworkManager — heartbeat + accident + commands
+│   │   ├── network.py       NetworkManager — heartbeat + accident + commands
+│   │   └── stream.py        StreamManager — MediaMTX subprocess + StreamHandler
 │   ├── handlers/
-│   │   ├── camera.py        CameraHandler (native / picam / imx500)
+│   │   ├── camera.py        CameraHandler (native / picam / imx500 / imx500-raw)
+│   │   ├── stream_handler.py StreamHandler — FrameBuffer → ffmpeg → MediaMTX RTSP
 │   │   ├── video.py         VideoHandler (file playback, same interface as camera)
 │   │   ├── frame_buffer.py  FrameBuffer — deque + threading.Lock
 │   │   ├── model_loader.py  ModelLoader — auto-detect .pt/.onnx, LRU cache
@@ -190,9 +224,27 @@ python3 src/main.py --video path/to/video.mp4
 python3 src/main.py --no-ai           # skip model inference
 python3 src/main.py --no-display      # headless mode
 python3 src/main.py --no-network      # offline mode
+python3 src/main.py --no-stream       # disable RTSP streaming
 ```
 
 **GUI control:** Spacebar triggers a manual accident report; Escape closes the window.
+
+### RTSP streaming setup (Raspberry Pi)
+
+```bash
+# 1. Install ffmpeg
+sudo apt install -y ffmpeg
+
+# 2. Download MediaMTX binary (ARM64 for Pi 4/5)
+#    https://github.com/bluenviron/mediamtx/releases
+#    Extract and place the binary so it's on PATH, or set stream.mediamtx_path in config.yaml
+
+# 3. Set camera mode and enable streaming in configs/config.yaml:
+#    camera.model: "imx500-raw"
+#    stream.enabled: true
+
+# Central Unit then pulls:  rtsp://<node-ip>:8554/live
+```
 
 ### Manual display test (no camera or network)
 
@@ -236,8 +288,15 @@ Three env vars override the YAML at startup:
 | `node.lanes` | Number of lane widgets created in the GUI |
 | `node.default_speed` | Default speed shown on reset |
 | `node.location.lat/long` | Static GPS fallback when SIM808 has no fix |
-| `camera.model` | `"native"` (OpenCV) / `"picam"` / `"imx500"` |
+| `camera.model` | `"native"` / `"picam"` / `"imx500"` (on-chip NPU) / `"imx500-raw"` (plain camera + software AI) |
 | `camera.index` | OpenCV capture index for native mode (default 0) |
+| `camera.imx500.camera_num` | Picamera2 camera index for IMX500 hardware (default 0, used by `imx500` and `imx500-raw`) |
+| `stream.enabled` | Enable RTSP streaming via MediaMTX + ffmpeg |
+| `stream.port` | MediaMTX RTSP port (default 8554) |
+| `stream.path` | Stream path — Central Unit pulls `rtsp://<node-ip>:<port>/<path>` |
+| `stream.fps` | Push rate to MediaMTX (default 15; independent of `camera.fps`) |
+| `stream.mediamtx_path` | Path or name of the MediaMTX binary (default `mediamtx`, must be on PATH) |
+| `stream.mediamtx_config` | Path to MediaMTX config relative to project root (default `configs/mediamtx.yml`) |
 | `ai.models.<name>` | `path`, `type`, `confidence`, `enabled`, `target_classes` |
 | `network.server_url` | Central Unit base URL (`http://` or `https://`) |
 | `network.ws_path` | Raw WS endpoint appended to server URL, converted to `ws://` |
@@ -290,13 +349,21 @@ Extend `NetworkManager._on_command()` with a new `elif command_id == "..."` bran
 
 Single detection → `accidentPolygon.points` is a flat list of 4 `{x, y}` dicts. Multiple detections → list of lists. The backend schema changes depending on detection count.
 
-### IMX500 auto-disables software AI
+### IMX500 auto-disables software AI — only in `imx500` mode
 
-Setting `camera.model: "imx500"` in config causes `SafespaceNode.__init__` to set `enable_ai = False` unconditionally, before the `AIManager` is even constructed. Models listed under `ai.models` will not be loaded in this mode.
+`camera.model: "imx500"` sets `enable_ai = False` before `AIManager` is constructed — no `.pt`/`.onnx` models are loaded. `camera.model: "imx500-raw"` does **not** do this; software AI runs normally alongside the RTSP stream.
 
-### edit_*.py files at project root
+### RTSP stream is a second FrameBuffer consumer
 
-The files `edit_main.py`, `edit_output.py`, `edit_gps_*.py`, etc. are scratch/experiment files left at the root. They are not part of the package and should not be imported or run in production.
+`StreamHandler` calls `get_latest_with_timestamp()` in its own thread, same as `AIManager`. Both are independent readers — neither blocks the other or the camera capture thread. However `frame.copy()` is taken inside the buffer lock, so very high-resolution frames can briefly delay `write_frame()` (see ARCHITECTURE.md Risk 3).
+
+### ffmpeg must be installed separately
+
+`StreamHandler` shells out to `ffmpeg`. It is not in `requirements.txt` (it is a system binary). Install with `sudo apt install ffmpeg` on Pi or `brew install ffmpeg` / system package manager on desktop. If `ffmpeg` is not found the stream thread logs an error and retries with backoff — the rest of the node continues normally.
+
+### MediaMTX binary is not bundled
+
+Download the correct release from https://github.com/bluenviron/mediamtx/releases (arm64 for Pi 4/5, amd64 for desktop). Place it on `PATH` or set `stream.mediamtx_path` to the full path. If MediaMTX fails to start, `StreamHandler` still attempts to connect ffmpeg — it will just fail and retry.
 
 ### GPS fallback
 
