@@ -53,7 +53,13 @@ class StreamManager:
 
     def start(self):
         self.logger.info("Starting Stream Manager...")
-        self._start_mediamtx()
+        if not self._start_mediamtx():
+            self.logger.error(
+                "MediaMTX failed to start — RTSP stream disabled. "
+                "Download the binary from https://github.com/bluenviron/mediamtx/releases "
+                "and place it on PATH or set stream.mediamtx_path in config.yaml."
+            )
+            return
         # Give MediaMTX a moment to open its RTSP port before ffmpeg connects
         time.sleep(self._MEDIAMTX_BOOT_WAIT)
         self._handler.start()
@@ -71,13 +77,13 @@ class StreamManager:
 
     # ── MediaMTX ─────────────────────────────────────────────────
 
-    def _start_mediamtx(self):
+    def _start_mediamtx(self) -> bool:
         if not self._mediamtx_cfg.exists():
             self.logger.error(
                 f"MediaMTX config not found: {self._mediamtx_cfg}. "
                 "Create configs/mediamtx.yml or set stream.mediamtx_config in config.yaml."
             )
-            return
+            return False
 
         try:
             self._mediamtx_process = subprocess.Popen(
@@ -89,6 +95,7 @@ class StreamManager:
                 f"MediaMTX started (pid={self._mediamtx_process.pid}, "
                 f"config={self._mediamtx_cfg})"
             )
+            return True
         except FileNotFoundError:
             self.logger.error(
                 f"mediamtx binary not found at '{self._mediamtx_bin}'. "
@@ -96,8 +103,10 @@ class StreamManager:
                 "https://github.com/bluenviron/mediamtx/releases "
                 "and place it in your PATH or set stream.mediamtx_path in config.yaml."
             )
+            return False
         except Exception as e:
             self.logger.error(f"MediaMTX failed to start: {e}")
+            return False
 
     def _stop_mediamtx(self):
         if self._mediamtx_process is None:

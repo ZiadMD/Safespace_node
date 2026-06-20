@@ -118,6 +118,9 @@ class NetworkManager:
         """Connect sockets and start the heartbeat loop."""
         self.logger.info("Starting Network Manager...")
 
+        # Upsert this node in the Central Unit DB before any other comms
+        self.register_node()
+
         # Open Socket.IO + raw WebSocket channels
         self._socket.connect()
 
@@ -236,21 +239,63 @@ class NetworkManager:
         self.logger.info("GPS handler attached to NetworkManager")
 
     # ══════════════════════════════════════════════════════════════
-    # Registration (reserved — not implemented on server yet)
+    # Registration
     # ══════════════════════════════════════════════════════════════
 
     def register_node(self):
         """
-        POST /api/nodes/register — reserved for future use.
+        POST /api/nodes/register — upserts this node in the Central Unit DB.
 
-        Called automatically when the server implements registration.
-        Currently a no-op placeholder.
+        Must succeed before heartbeats or WebSocket connections are accepted.
+        Safe to call on every startup (backend uses upsert).
         """
-        self.logger.info("Node registration is reserved — skipping")
-        # Future implementation:
-        # url = f"{self._server_url.rstrip('/')}{API_NODE_REGISTER}"
-        # payload = { "nodeId": self._node_id, ... }
-        # resp = requests.post(url, json=payload, timeout=self._timeout)
+        import socket as _socket
+
+        # Detect the outbound IP this machine uses to reach the server
+        try:
+            server_host = (
+                self._server_url
+                .replace("https://", "")
+                .replace("http://", "")
+                .split(":")[0]
+                .split("/")[0]
+            )
+            _s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+            _s.connect((server_host, 80))
+            ip_address = _s.getsockname()[0]
+            _s.close()
+        except Exception:
+            ip_address = "0.0.0.0"
+
+        url = f"{self._server_url.rstrip('/')}{API_NODE_REGISTER}"
+        payload = {
+            "nodeId": self._node_id,
+            "location": {
+                "latitude": float(self._lat),
+                "longitude": float(self._long),
+                "address": self.config.get("node.description", self._node_id),
+            },
+            "nodeSpecs": {
+                "cameraResolution": f"{self._cam_width}x{self._cam_height}",
+                "frameRate": self._target_fps,
+                "ipAddress": ip_address,
+                "bandwidth": f"{self.config.get_int('stream.fps', 15)}fps RTSP",
+                "detectionSensitivity": 70,
+                "minObjectSize": 10,
+            },
+            "firmwareVersion": self._firmware_version,
+            "modelVersion": self._model_version,
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=self._timeout)
+            if resp.ok:
+                self.logger.info(f"Node registered with Central Unit ({resp.status_code})")
+            else:
+                self.logger.warning(
+                    f"Node registration failed: {resp.status_code} {resp.text[:200]}"
+                )
+        except requests.RequestException as e:
+            self.logger.warning(f"Node registration error: {e}")
 
     # ══════════════════════════════════════════════════════════════
     # Accident Reporting
