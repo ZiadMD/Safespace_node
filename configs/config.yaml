@@ -42,7 +42,7 @@ ai:
     accident_detection:
       type: yolo
       path: models/best_MSamir.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
-      confidence: 0.7 
+      confidence: 0.1 
       enabled: true # Set to false to disable this model without removing its configuration
       # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
       target_classes:
@@ -60,7 +60,7 @@ ai:
         - Severe
 
 network:
-  server_url: https://scarabaeoid-scrofulously-rupert.ngrok-free.dev
+  server_url: http://192.168.1.7:5000
   ws_path: /ws/nodes                # Raw WebSocket endpoint for commands
   heartbeat_interval: 5             # Seconds between heartbeat POSTs
   timeout: 10                        # HTTP / Socket.IO request timeout
@@ -91,5 +91,5 @@ stream:
   fps: 15                          # Push rate to MediaMTX (lower than camera FPS saves CPU)
   width: 640                       # Frame width sent to MediaMTX (resized from capture if different)
   height: 640                      # Frame height sent to MediaMTX
-  mediamtx_path: mediamtx         # MediaMTX binary name/path (must be in PATH or set full path)
-  mediamtx_config: configs/mediamtx.yml
+  mediamtx_path: /home/safe/MediaMTX/mediamtx   # MediaMTX binary name/path (must be in PATH or set full path)
+  mediamtx_config: /home/safe/MediaMTX/mediamtx.yml
