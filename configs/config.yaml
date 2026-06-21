@@ -12,16 +12,16 @@ camera:
     width: 640
     height: 640
   fps: 30
-  model: "imx500-raw" # Camera mode:
+  model: "imx500" # Camera mode:
   #   "native"      - OpenCV webcam (laptop/dev)
   #   "picam"       - Raspberry Pi camera via picamera2
   #   "imx500"      - IMX500 on-chip NPU inference (disables software AI)
   #   "imx500-raw"  - IMX500 sensor as plain camera, software AI + RTSP streaming
   loop_video: true # Loop video playback when using video input
   imx500:
-    model_path: models/best_MSamir_imx.rpk # Path to the compiled .rpk model for on-chip inference (imx500 mode only)
+    model_path: models/Accident_and_fire_detector_imx_model.rpk # Path to the compiled .rpk model for on-chip inference (imx500 mode only)
     # model_path: models/network.rpk
-    confidence: 0.8 # Minimum confidence threshold for IMX500 detections
+    confidence: 0.5 # Minimum confidence threshold for IMX500 detections
     iou_threshold: 0.65 # IOU threshold for NMS on IMX500 output tensors
     max_detections: 10 # Maximum number of detections per frame
     camera_num: 0 # Picamera2 camera index for IMX500 hardware (imx500 and imx500-raw modes)
@@ -42,8 +42,8 @@ ai:
     accident_detection:
       type: yolo
       path: models/best_MSamir.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
-      confidence: 0.1 
-      enabled: true # Set to false to disable this model without removing its configuration
+      confidence: 0.6 
+      enabled: false # Set to false to disable this model without removing its configuration
       # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
       target_classes:
         - Moderate
@@ -58,6 +58,39 @@ ai:
       target_classes:
         - Moderate
         - Severe
+
+    accident_detection:
+      type: yolo
+      path: models/Accident_and_fire_detector.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
+      confidence: 0.6 
+      enabled: true # Set to false to disable this model without removing its configuration
+      # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
+      target_classes:
+        - bus
+        - bus_bus_accident
+        - bus_object_accident
+        - bus_person_accident
+        - bus_truck_accident
+        - car
+        - car_bus_accident
+        - car_car_accident
+        - car_motorcycle_accident
+        - car_object_accident
+        - car_person_accident
+        - car_truck_accident
+        - motorcycle
+        - motorcycle_bus_accident
+        - motorcycle_motorcycle_accident
+        - motorcycle_object_accident
+        - motorcycle_person_accident
+        - motorcycle_truck_accident
+        - truck
+        - truck_object_accident
+        - truck_person_accident
+        - truck_truck_accident
+        - smoke
+        - fire
+
 
 network:
   server_url: http://192.168.1.7:5000
