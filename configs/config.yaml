@@ -1,70 +1,53 @@
-node:
-  id: "safe-space-node-001"
-  location:
-    lat: "30.0444"
-    long: "31.2357"
-  lanes: 4
-  default_speed: 120
-  description: Safespace Highway Node
+# ─────────────────────────────────────────────────────────────────────────────
+# Safespace Node — single configuration file
+# All paths are relative to the project root unless stated otherwise.
+# Environment overrides: NODE_ID → node.id, SERVER_URL → network.server_url,
+#                        LOG_LEVEL → logging.level
+# ─────────────────────────────────────────────────────────────────────────────
 
+# ── Node identity ─────────────────────────────────────────────────────────────
+node:
+  id: "safe-space-node-001"        # Unique identifier sent in every network payload
+  description: Safespace Highway Node
+  lanes: 4                         # Number of lane widgets shown in the dashboard
+  default_speed: 120               # Speed (km/h) displayed on startup / after reset
+  location:
+    lat: "30.0444"                 # Static GPS fallback when SIM808 has no fix
+    long: "31.2357"
+
+# ── Camera ────────────────────────────────────────────────────────────────────
 camera:
+  model: "imx500-raw"              # Camera mode (see below); default is imx500-raw
+  #   "picam"       - Raspberry Pi camera via picamera2 (no on-chip AI)
+  #   "imx500"      - IMX500 on-chip NPU inference (disables software AI)
+  #   "imx500-raw"  - IMX500 sensor as plain camera; software AI + RTSP streaming
   resolution:
     width: 640
     height: 640
-  fps: 30
-  model: "imx500-raw" # Camera mode:
-  #   "picam"       - Raspberry Pi camera via picamera2
-  #   "imx500"      - IMX500 on-chip NPU inference (disables software AI)
-  #   "imx500-raw"  - IMX500 sensor as plain camera, software AI + RTSP streaming
-  loop_video: true # Loop video playback when using video input
-  imx500:
-    model_path: models/Accident_and_fire_detector_imx_model.rpk # Path to the compiled .rpk model for on-chip inference (imx500 mode only)
-    # model_path: models/network.rpk
-    confidence: 0.5 # Minimum confidence threshold for IMX500 detections
-    iou_threshold: 0.65 # IOU threshold for NMS on IMX500 output tensors
-    max_detections: 10 # Maximum number of detections per frame
-    camera_num: 0 # Picamera2 camera index for IMX500 hardware (imx500 and imx500-raw modes)
+  fps: 30                          # Capture frame rate (camera.fps)
+  loop_video: true                 # Loop video file when using --video flag
 
+  imx500:                          # Used by "imx500" and "imx500-raw" modes
+    camera_num: 0                  # Picamera2 camera index for IMX500 hardware
+    model_path: models/Accident_and_fire_detector_imx_model.rpk  # .rpk for "imx500" mode only
+    confidence: 0.5                # Minimum confidence for on-chip detections
+    iou_threshold: 0.65            # NMS IOU threshold for on-chip output tensors
+    max_detections: 10             # Maximum detections per frame from on-chip NPU
+
+# ── Frame buffer ──────────────────────────────────────────────────────────────
 buffer:
-  max_seconds: 30 # How many seconds of recent footage the ring buffer keeps
-  # Buffer size = max_seconds × camera.fps (e.g. 30s × 30fps = 900 frames)
+  max_seconds: 30                  # Ring buffer depth in seconds (frames = max_seconds × fps)
 
-display:
-  mode: dev # "dev" = video feeds + AI feed + FPS + system monitor | "prod" = lanes + speed + warnings only
-  width: 1500
-  height: 856
-  fullscreen: false
-  theme: dark
-
+# ── AI models ─────────────────────────────────────────────────────────────────
 ai:
   models:
+    # Software inference model (used in imx500-raw / picam modes)
     accident_detection:
-      type: yolo
-      path: models/best_MSamir.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
-      confidence: 0.6 
-      enabled: false # Set to false to disable this model without removing its configuration
-      # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
-      target_classes:
-        - Moderate
-        - Severe
-
-    # Example: ONNX model (auto-detected by .onnx extension)
-    accident_detection_onnx:
-      type: onnx
-      path: models/best_MSamir.onnx
-      confidence: 0.7
-      enabled: false
-      target_classes:
-        - Moderate
-        - Severe
-
-    accident_detection:
-      type: yolo
-      path: models/Accident_and_fire_detector.pt # Path to the model file. Ensure this path is correct and the model is compatible with your setup.
-      confidence: 0.6 
-      enabled: true # Set to false to disable this model without removing its configuration
-      # target_classes is used to specify which classes the model should focus on. If empty, it will consider all detected classes.
-      target_classes:
+      type: yolo                   # "yolo" (.pt) or "onnx" (.onnx)
+      path: models/Accident_and_fire_detector.pt
+      confidence: 0.6
+      enabled: true
+      target_classes:              # Leave empty to accept all classes
         - bus
         - bus_bus_accident
         - bus_object_accident
@@ -90,38 +73,61 @@ ai:
         - smoke
         - fire
 
+    # Example: ONNX model (uncomment and set enabled: true to activate)
+    accident_detection_onnx:
+      type: onnx
+      path: models/best_MSamir.onnx
+      confidence: 0.7
+      enabled: false
+      target_classes:
+        - Moderate
+        - Severe
 
-network:
-  server_url: http://192.168.1.7:5000
-  ws_path: /ws/nodes                # Raw WebSocket endpoint for commands
-  heartbeat_interval: 5             # Seconds between heartbeat POSTs
-  timeout: 10                        # HTTP / Socket.IO request timeout
-  accident_cooldown: 1              # Seconds between duplicate accident reports
-
-logging:
-  level: INFO
-  rotation: 5MB
-  backup_count: 5
-  file_logging: true
-
-failures:
-  threshold: 5
-  window_seconds: 300
-  auto_reset: false
-
-gps:
-  enabled: true
-  port: "/dev/ttyAMA0"
-  baud_rate: 9600
-  poll_interval: 10
-  timeout: 2
-
+# ── RTSP stream ───────────────────────────────────────────────────────────────
 stream:
   enabled: true
-  port: 8554                       # MediaMTX RTSP port — Central Unit pulls rtsp://<node-ip>:8554/<path>
-  path: live                       # Stream path  →  rtsp://<node-ip>:8554/live
-  fps: 15                          # Push rate to MediaMTX (lower than camera FPS saves CPU)
-  width: 640                       # Frame width sent to MediaMTX (resized from capture if different)
-  height: 640                      # Frame height sent to MediaMTX
-  mediamtx_path: /home/safe/MediaMTX/mediamtx   # MediaMTX binary name/path (must be in PATH or set full path)
-  mediamtx_config: /home/safe/MediaMTX/mediamtx.yml
+  port: 8554                       # MediaMTX RTSP port; Central Unit pulls rtsp://<node-ip>:8554/<path>
+  path: live                       # Stream path → rtsp://<node-ip>:8554/live
+  fps: 15                          # Push rate to MediaMTX (lower than camera.fps saves CPU)
+  width: 640                       # Resolution sent to MediaMTX (resized from capture if different)
+  height: 640
+  mediamtx_path: /home/safe/MediaMTX/mediamtx   # Full path or binary name if on PATH
+  mediamtx_config: /home/safe/MediaMTX/mediamtx.yml  # Path to MediaMTX config file
+
+# ── Network ───────────────────────────────────────────────────────────────────
+network:
+  server_url: http://192.168.1.7:5000   # Central Unit base URL (http:// or https://)
+  ws_path: /ws/nodes                    # Raw WebSocket endpoint (appended to server_url)
+  heartbeat_interval: 5                 # Seconds between heartbeat POSTs
+  timeout: 10                           # HTTP / Socket.IO request timeout (seconds)
+  accident_cooldown: 1                  # Minimum seconds between duplicate accident reports
+
+# ── GPS ───────────────────────────────────────────────────────────────────────
+gps:
+  enabled: true
+  port: "/dev/ttyAMA0"            # SIM808 UART device
+  baud_rate: 9600
+  poll_interval: 10               # Seconds between NMEA reads
+  timeout: 2                      # Serial read timeout (seconds)
+
+# ── Display ───────────────────────────────────────────────────────────────────
+display:
+  mode: dev                        # "dev" = video feeds + AI overlay + system monitor
+                                   # "prod" = lanes + speed + warnings only
+  width: 1500
+  height: 856
+  fullscreen: false
+  theme: dark
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level: INFO                      # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  rotation: 5MB                    # Max log file size before rotation
+  backup_count: 5                  # Number of rotated log files to keep
+  file_logging: true               # Write logs to logs/safespace.log at project root
+
+# ── Failure management ────────────────────────────────────────────────────────
+failures:
+  threshold: 5                     # Failures within window_seconds before escalation
+  window_seconds: 300
+  auto_reset: false
