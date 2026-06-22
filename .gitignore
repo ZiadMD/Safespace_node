@@ -70,6 +70,8 @@ Thumbs.db
 .env.*.local
 
 # Project-specific
+auto.key
+auto.crt
 safespace/logs/
 *.log
 logs/
