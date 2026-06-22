@@ -1,74 +1,127 @@
 # Safespace Node
 
-Safespace Node is a robust hardware-orchestration layer designed for edge-based road safety monitoring. It manages high-speed camera capture, real-time GUI visualization, and dual-mode communication with the Safespace Central Unit.
+Edge-based road safety monitoring system running on a Raspberry Pi with a Sony IMX500 AI camera. Captures video, runs accident-detection models, streams an RTSP feed, and communicates with the Safespace Central Unit via Socket.IO and raw WebSockets.
 
-## 🏗 Architecture
+For architecture details see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-The system follows a strict **Manager-Handler** design pattern to ensure clean decoupling between high-level business logic and low-level hardware interactions.
+---
 
--   **SafespaceNode (Orchestrator)**: The primary entry point. Manages the high-level application lifecycle and state transitions.
--   **Managers**: Synchronize complex operations across multiple handlers (e.g., `IOManager`, `NetworkManager`).
--   **Handlers**: Low-level implementation wrappers for specific hardware or protocols (e.g., `CameraHandler`, `DisplayHandler`, `SocketHandler`).
--   **Utils**: shared infrastructure for granular configuration, dual-sink logging, and failure resilience.
+## Requirements
 
-## 🛠 Features
+- Raspberry Pi OS (64-bit)
+- Sony IMX500 camera (or standard Pi camera in `picam` mode)
+- ffmpeg (`sudo apt install ffmpeg`)
+- MediaMTX binary — download from https://github.com/bluenviron/mediamtx/releases (arm64)
 
--   **High-Performance Vision**: Threaded OpenCV capture with zero-lag startup (hardware initialization happens in the background).
--   **Pro-Grade GUI**: PyQt6 dashboard with SVG rendering, automatic aspect-ratio scaling (16:9), and dark-mode aesthetics.
--   **Hybrid Networking**:
-    *   **WebSockets (Socket.io)**: Real-time heartbeats and receiving road instructions from the Central Unit.
-    *   **HTTP POST (Multipart)**: Reliable, specification-compliant upload of accident metadata and high-res snapshots.
--   **Granular Configuration**: Domain-specific settings (node, network, camera, display) decentralized into manageable JSON files.
--   **State-Driven Logic**: "Awaiting Confirmation" lock ensures the node remains in sync with the Central Unit's decisions.
+---
 
-## 🚀 Getting Started
+## Install
 
-### 1. Setup Environment
-```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Raspberry Pi Setup (Recommended)
-On Raspberry Pi OS, install Qt bindings from apt to avoid PyQt6 source-build failures in pip:
+PyQt6 and picamera2 must come from apt (pip source-builds fail on ARM):
 
 ```bash
 sudo apt update
-sudo apt install -y python3-pyqt6
+sudo apt install -y python3-pyqt6 python3-picamera2 ffmpeg
+```
 
-# Recreate venv with system packages so apt-installed PyQt6 is visible
+Create the venv with system packages visible, then install the remaining deps:
+
+```bash
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
-
-# Install Pi-compatible Python dependencies
-pip install -r requirements-raspi.txt
+pip install -r requirements.txt
 ```
 
-### 2. Configuration
-The application automatically merges all JSON files found in `safespace/configs/`. Customize your node by editing:
-- `configs/node.json`: ID and GPS coordinates.
-- `configs/network.json`: Central Unit URL and heartbeat intervals.
-- `configs/camera.json`: Frame rate and resolution.
-- `configs/display.json`: Window dimensions.
+---
 
-### 3. Running
+## Configure
+
+All settings live in a single file: `configs/config.yaml`.
+
+Key sections:
+
+| Section | What to set |
+|---|---|
+| `node` | Unique node ID, lane count, static GPS coordinates |
+| `camera.model` | `imx500-raw` (default), `imx500`, or `picam` |
+| `stream` | RTSP enabled/disabled, MediaMTX binary path |
+| `network.server_url` | Central Unit base URL |
+| `ai.models` | Model file paths, confidence thresholds, enabled flags |
+
+Three environment variables override YAML at startup:
+
+| Env var | Config key |
+|---|---|
+| `NODE_ID` | `node.id` |
+| `SERVER_URL` | `network.server_url` |
+| `LOG_LEVEL` | `logging.level` |
+
+---
+
+## Run
+
 ```bash
-# Run with python path pointing to root
 export PYTHONPATH=$PYTHONPATH:$(pwd)
-python3 safespace/main.py
+
+# Default (uses config.yaml settings)
+python3 src/main.py
+
+# Use a video file instead of camera (dev/test)
+python3 src/main.py --video path/to/video.mp4
+
+# Disable individual subsystems
+python3 src/main.py --no-ai        # skip model inference
+python3 src/main.py --no-display   # headless
+python3 src/main.py --no-network   # offline
+python3 src/main.py --no-stream    # disable RTSP
 ```
 
-## ⌨️ Controls
-- **Spacebar**: Trigger a manual accident report. The node will capture a frame and wait for server confirmation.
+**GUI controls:** Spacebar — manual accident report. Escape — close window.
 
-## 📂 Project Structure
-- `safespace/Managers/`: High-level orchestration.
-- `safespace/Handlers/`: Low-level implementation.
-- `safespace/utils/`: Configuration, Loggers, Constants, and Failure Management.
-- `safespace/assets/`: UI Icons and captured accident snapshots.
-- `safespace/configs/`: JSON configuration files.
-- `logs/`: Rotating application logs.
+**Logs** are written to `logs/safespace.log` (rotating, 5 MB, project root).
+
+---
+
+## RTSP streaming
+
+When `stream.enabled: true` in config.yaml the node:
+1. Starts MediaMTX (path set in `stream.mediamtx_path`)
+2. Pushes frames via ffmpeg to `rtsp://localhost:8554/live`
+
+The Central Unit then pulls `rtsp://<node-ip>:8554/live`.
+
+---
+
+## Project structure
+
+```
+Safespace_node/
+├── configs/
+│   ├── config.yaml          single config file — all settings
+│   └── mediamtx.yml         MediaMTX config — RTSP on :8554
+├── docs/
+│   └── ARCHITECTURE.md      threading diagrams, data flow, gotchas
+├── models/
+│   ├── *.pt                 YOLO weights
+│   ├── *.onnx               ONNX weights
+│   └── *.rpk                IMX500 compiled networks
+├── assets/
+│   └── road_signs_icons/    SVGs used by the lane widget
+├── logs/                    rotating log output (created at runtime)
+├── src/
+│   ├── main.py              SafespaceNode orchestrator + CLI entry point
+│   ├── managers/            high-level orchestration (ai, input, output, network, stream)
+│   ├── handlers/            low-level I/O wrappers (camera, video, socket, display, …)
+│   └── utils/               config, logger, constants, failure management
+├── requirements.txt         pip deps (PyQt6 + picamera2 come from apt)
+└── CLAUDE.md                AI-assistant context and conventions
+```
+
+---
+
+## Manual display test (no camera or network)
+
+```bash
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+python3 src/test_display.py
+```
