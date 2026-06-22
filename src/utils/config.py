@@ -111,12 +111,13 @@ class Config:
             with open(path, 'w') as f:
                 yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
         except Exception as e:
-            print(f"Failed to save config to {path}: {e}")
+            import logging
+            logging.getLogger(__name__).error(f"Failed to save config to {path}: {e}")
 
 
 if __name__ == "__main__":
     # Test stub
     config = Config()
     print(f"Node ID: {config.get('node.id')}")
-    print(f"Camera width: {config.get('camera.width')}")
+    print(f"Camera width: {config.get('camera.resolution.width')}")
     print(f"Server URL: {config.get('network.server_url')}")

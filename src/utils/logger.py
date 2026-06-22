@@ -1,6 +1,5 @@
 import logging
 import sys
-import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -41,8 +40,8 @@ class Logger:
             
             # 2. File Handler (Rotating)
             try:
-                base_dir = Path(__file__).parent.parent
-                log_dir = base_dir / "logs"
+                # logs/ lives at the project root (two levels up from src/utils/)
+                log_dir = Path(__file__).parent.parent.parent / "logs"
                 log_dir.mkdir(exist_ok=True)
                 
                 log_file = log_dir / "safespace.log"
