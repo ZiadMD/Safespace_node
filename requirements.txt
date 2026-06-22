@@ -1,11 +1,13 @@
-# Base requirements for SafeSpace Node
-# 
-# For installation instructions based on your platform:
-# - Raspberry Pi (CPU): pip install -r requirements-raspi.txt
-# - Laptop/Desktop with GPU: pip install -r requirements-gpu.txt
-
-# GUI
-PyQt6
+# Raspberry Pi requirements for Safespace Node
+#
+# System packages (install before creating the venv):
+#   sudo apt update
+#   sudo apt install -y python3-pyqt6 python3-picamera2 ffmpeg
+#
+# Create the venv with system packages visible (for apt-installed PyQt6 + picamera2):
+#   python3 -m venv .venv --system-site-packages
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
 
 # Computer Vision
 opencv-python
@@ -24,3 +26,7 @@ PyYAML
 requests
 python-socketio
 websocket-client
+
+# Deep Learning (CPU only — Pi has no CUDA)
+torch --index-url https://download.pytorch.org/whl/cpu
+torchvision --index-url https://download.pytorch.org/whl/cpu
