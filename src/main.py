@@ -79,7 +79,7 @@ class SafespaceNode:
         self.logger.info("Initializing Safespace Node...")
 
         # Check camera mode — only on-chip IMX500 inference disables software AI
-        camera_model = self.config.get('camera.model', 'native')
+        camera_model = self.config.get('camera.model', 'imx500-raw')
         if camera_model == 'imx500':
             self.logger.info("IMX500 mode detected — disabling software AI (using on-chip inference)")
             enable_ai = False

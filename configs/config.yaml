@@ -12,8 +12,7 @@ camera:
     width: 640
     height: 640
   fps: 30
-  model: "imx500" # Camera mode:
-  #   "native"      - OpenCV webcam (laptop/dev)
+  model: "imx500-raw" # Camera mode:
   #   "picam"       - Raspberry Pi camera via picamera2
   #   "imx500"      - IMX500 on-chip NPU inference (disables software AI)
   #   "imx500-raw"  - IMX500 sensor as plain camera, software AI + RTSP streaming

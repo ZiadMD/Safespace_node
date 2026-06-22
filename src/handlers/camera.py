@@ -1,8 +1,7 @@
 """
-Camera Handler - Captures frames from a physical camera (native webcam or IMX500).
+Camera Handler - Captures frames from a physical camera (Raspberry Pi / IMX500).
 
 Modes:
-  - native:     Uses OpenCV VideoCapture (development / laptop).
   - picam:      Uses picamera2 (Raspberry Pi camera, no AI).
   - imx500:     Uses picamera2 + Sony IMX500 on-chip NPU. Loads a .rpk model and
                 returns detections alongside each frame — AIManager is disabled.
@@ -33,12 +32,12 @@ except Exception as exc:
 
 
 class CameraHandler:
-    """Captures frames from a physical camera source (native or IMX500)."""
+    """Captures frames from a physical camera source (picam or IMX500)."""
 
     def __init__(self, config: Config):
         self.logger = Logger("CameraHandler")
         self.config = config
-        self.camera_type: str = self.config.get('camera.model', 'native')
+        self.camera_type: str = self.config.get('camera.model', 'imx500-raw')
         self.camera = None
         self._running = False
 
@@ -58,28 +57,15 @@ class CameraHandler:
             elif self.camera_type == 'picam':
                 return self._start_picamera()
             else:
-                return self._start_native()
+                self.logger.error(
+                    f"Unknown camera.model '{self.camera_type}'. "
+                    "Supported modes: imx500-raw, imx500, picam."
+                )
+                return False
         except Exception as e:
             self.logger.error(f"Camera start failed: {e}")
             return False
 
-    def _start_native(self) -> bool:
-        """Open a standard USB / laptop camera via OpenCV."""
-        index = self.config.get_int('camera.index', 0)
-        self.camera = cv2.VideoCapture(index)
-        if not self.camera.isOpened():
-            raise RuntimeError(f"Failed to open camera at index {index}")
-
-        res = self.config.get('camera.resolution', {})
-        if res.get('width'):
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, res['width'])
-        if res.get('height'):
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, res['height'])
-
-        self._running = True
-        self.logger.info("Camera started (native)")
-        return True
-    
     def _start_picamera(self) -> bool:
         """Open a Raspberry Pi camera via picamera2."""
         if not _HAS_PICAMERA2:
@@ -209,11 +195,8 @@ class CameraHandler:
         if self.camera is None:
             return
         try:
-            if self.camera_type in ('imx500', 'imx500-raw', 'picam'):
-                self.camera.stop()
-                self.camera.close()
-            else:
-                self.camera.release()
+            self.camera.stop()
+            self.camera.close()
             self.logger.info("Camera released")
         except Exception as e:
             self.logger.error(f"Camera release failed: {e}")
@@ -230,11 +213,8 @@ class CameraHandler:
         try:
             if self.camera_type == 'imx500':
                 return self._read_frame_imx500()
-            elif self.camera_type in ('picam', 'imx500-raw'):
-                return self._read_frame_picam()
             else:
-                ret, frame = self.camera.read()
-                return frame if ret else None
+                return self._read_frame_picam()
         except Exception as e:
             self.logger.error(f"Frame read failed: {e}")
             return None

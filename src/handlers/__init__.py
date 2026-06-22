@@ -2,7 +2,7 @@
 handlers — Low-level I/O and processing components.
 
 Modules:
-    camera          — CameraHandler (native / IMX500)
+    camera          — CameraHandler (picam / imx500 / imx500-raw)
     video           — VideoHandler (file playback)
     frame_buffer    — FrameBuffer (thread-safe ring buffer)
     model_loader    — ModelLoader (YOLO .pt / ONNX loader)
