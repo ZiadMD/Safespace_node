@@ -72,14 +72,8 @@ Thumbs.db
 # Project-specific
 auto.key
 auto.crt
-safespace/logs/
 *.log
 logs/
-safespace/assets/accidents_images/
-
-safespace/AI Layer/Models/
-safespace/AI Layer/Notebooks/.ipynb_checkpoints/
-safespace/AI Layer/Data/
 
 # Media files
 *.png

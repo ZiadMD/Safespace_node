@@ -386,7 +386,6 @@ class NetworkManager:
             bbox = detections.xyxy[i]
             conf = detections.confidence[i] if detections.confidence is not None else 1.0
             cls_id = detections.class_id[i] if detections.class_id is not None else -1
-            print(f'bbox: {bbox}')
             detailed_detections.append({
                 "bbox": [int(x) for x in bbox],
                 "confidence": float(conf),
@@ -408,7 +407,7 @@ class NetworkManager:
             _lat = _loc["lat"]
             _lon = _loc["long"]
             if not _loc["fix"]:
-                self.logger.debug("GPS no fix � using config fallback coordinates")
+                self.logger.debug("GPS no fix - using config fallback coordinates")
         else:
             _lat = float(self._lat)
             _lon = float(self._long)

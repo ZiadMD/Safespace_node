@@ -28,5 +28,6 @@ python-socketio
 websocket-client
 
 # Deep Learning (CPU only — Pi has no CUDA)
-torch --index-url https://download.pytorch.org/whl/cpu
-torchvision --index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
