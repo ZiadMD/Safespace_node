@@ -90,13 +90,15 @@ Or do it by hand:
 ```bash
 sudo nmcli connection add type ethernet ifname eth0 con-name direct-link \
      ipv4.method manual ipv4.addresses 192.168.50.10/24 ipv4.never-default yes \
-     ipv6.method disabled connection.autoconnect yes
+     ipv6.method disabled connection.autoconnect yes connection.autoconnect-priority 10
 sudo nmcli connection up direct-link
 ```
 
 `ipv4.never-default yes` (and no gateway) is the important part: the cable gets
 an address but never becomes the default route, so internet over Wi-Fi keeps
-working. The resulting keyfile lands at
+working. `connection.autoconnect-priority 10` makes this profile win `eth0` over
+NetworkManager's auto-created `Wired connection 1` (which would otherwise try
+DHCP) without deleting it. The resulting keyfile lands at
 `/etc/NetworkManager/system-connections/direct-link.nmconnection`.
 
 > **Not NetworkManager?** Confirm your Pi's stack first:
@@ -106,10 +108,10 @@ working. The resulting keyfile lands at
 ### Central Unit side (Linux / NetworkManager)
 
 ```bash
-nmcli device status                       # find the CU's wired NIC name (e.g. enp3s0)
+nmcli device status                       # find the CU's wired NIC name (e.g. enp46s0)
 sudo nmcli connection add type ethernet ifname <NIC> con-name direct-link \
      ipv4.method manual ipv4.addresses 192.168.50.1/24 ipv4.never-default yes \
-     ipv6.method disabled connection.autoconnect yes
+     ipv6.method disabled connection.autoconnect yes connection.autoconnect-priority 10
 sudo nmcli connection up direct-link
 ```
 
@@ -124,11 +126,18 @@ CU. Static IPs are preferred precisely because the CU address must stay fixed in
 ### Verify the link (run on the Pi)
 
 ```bash
-nmcli connection show direct-link        # profile is active
-ip -4 addr show eth0                      # → inet 192.168.50.10/24
-ip route get 192.168.50.1                 # → ... dev eth0 src 192.168.50.10
-ping -c3 192.168.50.1                     # CU answers over the cable
+sudo ethtool eth0 | grep -i 'link detected'   # MUST say "yes" — confirms a live cable
+nmcli connection show direct-link             # profile is active
+ip -4 addr show eth0                           # → inet 192.168.50.10/24
+ip route get 192.168.50.1                      # → ... dev eth0 src 192.168.50.10
+ping -c3 192.168.50.1                          # CU answers over the cable
 ```
+
+The static IP and route can be applied even with the cable unplugged — the route
+just shows `linkdown` and `ip route get` still resolves via `eth0`, but no packets
+flow. So **check `Link detected: yes` first**: a `carrier=0` / `Link detected: no`
+means a dead cable, wrong port, or a port plugged into a powered-off switch — fix
+that before debugging anything in software.
 
 The `ip route get` line resolving via **`dev eth0`** is the evidence that CU
 traffic goes over Ethernet. After starting the node, `logs/safespace.log` should

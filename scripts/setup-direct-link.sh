@@ -8,6 +8,11 @@
 # a private /24 WITHOUT becoming the default route — so internet over Wi-Fi keeps
 # working. Idempotent: safe to re-run.
 #
+# It sets a high autoconnect-priority so this profile wins the interface over any
+# pre-existing default profile (e.g. NetworkManager's auto-created
+# "Wired connection 1") without deleting it. If there is no carrier yet (cable
+# unplugged / no link) the profile is staged and auto-activates once a link appears.
+#
 # Target stack: NetworkManager (Raspberry Pi OS Bookworm and later).
 #
 # Usage:
@@ -41,7 +46,8 @@ if nmcli -t -f NAME connection show | grep -qx "${CON_NAME}"; then
         ipv4.gateway "" \
         ipv4.never-default yes \
         ipv6.method disabled \
-        connection.autoconnect yes
+        connection.autoconnect yes \
+        connection.autoconnect-priority 10
 else
     echo "    profile absent — creating"
     sudo nmcli connection add type ethernet ifname "${IFACE}" con-name "${CON_NAME}" \
@@ -49,17 +55,30 @@ else
         ipv4.addresses "${PI_IP}/${CIDR}" \
         ipv4.never-default yes \
         ipv6.method disabled \
-        connection.autoconnect yes
+        connection.autoconnect yes \
+        connection.autoconnect-priority 10
 fi
 
-# (Re)activate so the address is live now.
-sudo nmcli connection up "${CON_NAME}"
+# (Re)activate so the address is live now. Tolerate "no carrier" — the profile is
+# staged either way and NetworkManager brings it up automatically once a link exists.
+echo "==> Activating ${CON_NAME}..."
+if sudo nmcli connection up "${CON_NAME}" 2>/dev/null; then
+    echo "    active"
+else
+    echo "    not active yet — most likely NO CARRIER (cable unplugged or no link)."
+    echo "    Check the physical link:  sudo ethtool ${IFACE} | grep -i 'link detected'"
+    echo "    The profile is staged; it auto-activates when a live link appears."
+fi
 
 echo
-echo "==> Applied address:"
-ip -4 addr show "${IFACE}" | sed 's/^/    /'
+echo "==> Profile (staged config):"
+nmcli -f connection.id,ipv4.method,ipv4.addresses,ipv4.never-default,connection.autoconnect-priority \
+    connection show "${CON_NAME}" 2>/dev/null | sed 's/^/    /' || true
 echo
-echo "==> Route to the Central Unit (must say 'dev ${IFACE}'):"
-ip route get "${CU_IP}" | sed 's/^/    /'
+echo "==> Live address on ${IFACE}:"
+ip -4 addr show "${IFACE}" 2>/dev/null | sed 's/^/    /' || true
 echo
-echo "Done. Verify reachability with:  ping -c3 ${CU_IP}"
+echo "==> Route to the Central Unit (should say 'dev ${IFACE}' once the link is up):"
+ip route get "${CU_IP}" 2>/dev/null | sed 's/^/    /' || echo "    (no route yet — link down or CU side not configured)"
+echo
+echo "Done. When the cable is live, verify with:  ping -c3 ${CU_IP}"
