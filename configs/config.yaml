@@ -96,7 +96,10 @@ stream:
 
 # ── Network ───────────────────────────────────────────────────────────────────
 network:
-  server_url: http://192.168.1.7:5000   # Central Unit base URL (http:// or https://)
+  # Central Unit base URL — the SINGLE, swappable address for the CU (http:// or https://).
+  # Direct Ethernet link default: the CU's static IP 192.168.50.1 (see README "Wired bring-up").
+  # Override at runtime with the SERVER_URL env var. No CU IPs are hardcoded anywhere in code.
+  server_url: http://192.168.50.1:5000
   ws_path: /ws/nodes                    # Raw WebSocket endpoint (appended to server_url)
   heartbeat_interval: 5                 # Seconds between heartbeat POSTs
   timeout: 10                           # HTTP / Socket.IO request timeout (seconds)

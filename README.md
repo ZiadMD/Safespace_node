@@ -58,6 +58,88 @@ Three environment variables override YAML at startup:
 
 ---
 
+## Wired bring-up (direct Ethernet to the Central Unit)
+
+The Pi connects to the Central Unit (CU) over a **direct Ethernet cable**. A
+direct link has no DHCP, so both ends use **static IPs** on a private `/24`.
+Traffic going over the cable is an OS **routing** decision — there is no
+interface binding in application code.
+
+| Host | Interface | Static IP | Notes |
+|---|---|---|---|
+| Pi (this node) | `eth0` | `192.168.50.10/24` | no gateway on the link |
+| Central Unit | its wired NIC | `192.168.50.1/24` | this is the address in `network.server_url` |
+
+The CU address is a **single config value** — `network.server_url` in
+`configs/config.yaml` (default `http://192.168.50.1:5000`). Swap the CU box by
+editing that one line, or override at runtime with `SERVER_URL`. No CU IP is
+hardcoded anywhere in code.
+
+### Pi side (NetworkManager — Raspberry Pi OS Bookworm+)
+
+Run the helper (idempotent — safe to re-run):
+
+```bash
+sudo ./scripts/setup-direct-link.sh
+# override defaults if needed:
+sudo PI_IP=192.168.50.10 CU_IP=192.168.50.1 IFACE=eth0 ./scripts/setup-direct-link.sh
+```
+
+Or do it by hand:
+
+```bash
+sudo nmcli connection add type ethernet ifname eth0 con-name direct-link \
+     ipv4.method manual ipv4.addresses 192.168.50.10/24 ipv4.never-default yes \
+     ipv6.method disabled connection.autoconnect yes
+sudo nmcli connection up direct-link
+```
+
+`ipv4.never-default yes` (and no gateway) is the important part: the cable gets
+an address but never becomes the default route, so internet over Wi-Fi keeps
+working. The resulting keyfile lands at
+`/etc/NetworkManager/system-connections/direct-link.nmconnection`.
+
+> **Not NetworkManager?** Confirm your Pi's stack first:
+> `systemctl is-active NetworkManager dhcpcd systemd-networkd`. On dhcpcd
+> (Bullseye and earlier) add a static stanza to `/etc/dhcpcd.conf` instead.
+
+### Central Unit side (Linux / NetworkManager)
+
+```bash
+nmcli device status                       # find the CU's wired NIC name (e.g. enp3s0)
+sudo nmcli connection add type ethernet ifname <NIC> con-name direct-link \
+     ipv4.method manual ipv4.addresses 192.168.50.1/24 ipv4.never-default yes \
+     ipv6.method disabled connection.autoconnect yes
+sudo nmcli connection up direct-link
+```
+
+### Zero-config fallback (link-local / APIPA)
+
+If neither end has a static address, NetworkManager auto-assigns a link-local
+`169.254.x.x` address (APIPA) and the two can still reach each other — but those
+addresses are not deterministic, so you'd need mDNS (`<host>.local`) to find the
+CU. Static IPs are preferred precisely because the CU address must stay fixed in
+`network.server_url`.
+
+### Verify the link (run on the Pi)
+
+```bash
+nmcli connection show direct-link        # profile is active
+ip -4 addr show eth0                      # → inet 192.168.50.10/24
+ip route get 192.168.50.1                 # → ... dev eth0 src 192.168.50.10
+ping -c3 192.168.50.1                     # CU answers over the cable
+```
+
+The `ip route get` line resolving via **`dev eth0`** is the evidence that CU
+traffic goes over Ethernet. After starting the node, `logs/safespace.log` should
+show node registration (`200`) and heartbeats to the CU.
+
+> A startup **connectivity gate** (block-and-retry until the CU is reachable,
+> then continue) and an automatic interface-route report are added on top of the
+> diagnostics module — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+---
+
 ## Run
 
 ```bash

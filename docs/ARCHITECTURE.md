@@ -118,6 +118,45 @@ FrameBuffer → RTSPStream thread
 
 ---
 
+## Wired bring-up / network addressing
+
+The node reaches the Central Unit (CU) over a **direct Ethernet cable**. A direct
+link has no DHCP, so both ends use static IPs on a private `/24`:
+
+```
+Pi (node)  eth0  192.168.50.10/24  ──cable──  192.168.50.1/24  wired NIC  Central Unit
+```
+
+**Routing, not binding.** Which interface carries CU traffic is decided by the OS
+routing table, *not* by binding sockets to `eth0` in application code (per-library
+source binding across `requests` / Socket.IO / `websocket-client` is brittle).
+The Pi profile is configured `ipv4.never-default yes` with no gateway, so the
+cable gets an address but never becomes the default route — Wi-Fi keeps providing
+internet. See the README "Wired bring-up" section and `scripts/setup-direct-link.sh`.
+
+**Single CU address.** Every consumer reads the CU base URL from one config key,
+`network.server_url` (`src/managers/network.py`, `src/handlers/socket.py`). No CU
+IP is hardcoded; the only literals in code are the `0.0.0.0` registration fallback
+and `rtsp://localhost` (the node's *local* MediaMTX). `register_node()` also reports
+the outbound source IP it uses to reach the CU (UDP-connect trick) in `nodeSpecs.ipAddress`.
+
+**Verifiable Ethernet evidence.** `ip route get <CU-IP>` resolving via `dev eth0`
+is the proof that CU traffic uses the cable — not socket internals.
+
+### Planned (pending the diagnostics module)
+
+A startup **connectivity gate** runs in `SafespaceNode.start()` before the node
+declares itself ready: it reuses the diagnostics network probe to TCP-connect to
+the CU host/port parsed from `network.server_url`, **blocking and retrying** with
+logging (configurable `timeout` / `retries` / `retry_interval` under
+`network.connectivity_gate`). On exhaustion it logs an error and continues so the
+node still boots and the network layer keeps reconnecting in the background.
+Alongside it, the same diagnostics module reports which interface/source IP the CU
+route resolves to. The probe and route-resolution live in the diagnostics module
+(single source of truth) — the gate does not duplicate them.
+
+---
+
 ## Known risks and gotchas
 
 ### FrameBuffer: `frame.copy()` is inside the lock
