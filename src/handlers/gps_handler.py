@@ -1,5 +1,5 @@
 """
-GPS Handler � Reads location data from SIM808 module over UART.
+GPS Handler - Reads location data from SIM808 module over UART.
 
 Responsibilities:
     - Powers on the GPS subsystem via AT commands
@@ -17,7 +17,7 @@ from utils.logger import Logger
 from utils.failures import GPSError, FailureManager
 
 class GPSHandler:
-    
+
     """
     Manages communication with the SIM808 GPS module over UART.
 
@@ -47,11 +47,11 @@ class GPSHandler:
         self._has_fix: bool = False
         self._consecutive_failures: int = 0
         self._max_failures: int = 10
-        self._failure_manager = FailureManager() 
+        self._failure_manager = FailureManager()
 
     def start(self):
         if not self._enabled:
-            self.logger.info("GPS is disabled in config � skipping")
+            self.logger.info("GPS is disabled in config - skipping")
             return
 
         try:
@@ -65,9 +65,19 @@ class GPSHandler:
             self.logger.error(f"Failed to open serial port {self._port}: {e}")
             return
 
+        # Sync with the module and silence command echo before issuing commands.
+        # The SIM808 boots with echo ON and persists the setting, so otherwise
+        # every reply starts with the echoed command - the source of the
+        # intermittent power-on parse failures.
+        self._sync_modem()
+
         if not self._power_on_gps():
-            self.logger.error("Failed to power on GPS � polling will not start")
-            return
+            # Non-fatal: GNSS power state persists across sessions, so the module
+            # may already be on. Start polling anyway; the poll loop has its own
+            # failure tracking to catch a genuinely unresponsive module.
+            self.logger.warning(
+                "GPS power-on not acknowledged - starting poll loop anyway"
+            )
 
         self._running = True
         self._thread = threading.Thread(
@@ -90,27 +100,57 @@ class GPSHandler:
 
 
     def _send_at(self, command: str, wait: float = 1.0) -> str:
+        """
+        Send an AT command and return the full modem reply.
+
+        Drains the serial buffer until the reply contains a terminator
+        ("OK"/"ERROR") or `wait` seconds elapse, instead of grabbing a single
+        in_waiting snapshot. This prevents capturing only a partial reply (e.g.
+        the echoed command without the trailing OK), which previously caused
+        power-on to fail intermittently.
+        """
         if not self._serial or not self._serial.is_open:
             return ""
         try:
             self._serial.reset_input_buffer()
             self._serial.write(f"{command}\r\n".encode())
-            time.sleep(wait)
-            response = self._serial.read(self._serial.in_waiting or 200)
-            return response.decode(errors="ignore")
+
+            buffer = bytearray()
+            deadline = time.time() + max(wait, 0.5)
+            while time.time() < deadline:
+                pending = self._serial.in_waiting
+                if pending:
+                    buffer += self._serial.read(pending)
+                    if b"OK" in buffer or b"ERROR" in buffer:
+                        break
+                else:
+                    time.sleep(0.02)
+            return buffer.decode(errors="ignore")
         except serial.SerialException as e:
             self.logger.warning(f"Serial error sending '{command}': {e}")
             return ""
-        
+
+    def _sync_modem(self):
+        """Wake the modem (AT) and disable command echo (ATE0)."""
+        for _ in range(3):
+            if "OK" in self._send_at("AT", wait=1.0):
+                break
+        self._send_at("ATE0", wait=1.0)
+
     def _power_on_gps(self) -> bool:
         self.logger.info("Powering on GPS subsystem...")
-        response = self._send_at("AT+CGNSPWR=1", wait=2.0)
-        if "OK" in response:
-            self.logger.info("GPS subsystem powered on")
-            return True
-        self.logger.error(f"GPS power-on failed. Response: {response!r}")
+        for attempt in range(1, 4):
+            response = self._send_at("AT+CGNSPWR=1", wait=2.0)
+            if "OK" in response:
+                self.logger.info("GPS subsystem powered on")
+                return True
+            self.logger.warning(
+                f"GPS power-on attempt {attempt}/3 failed. Response: {response!r}"
+            )
+            time.sleep(1.0)
+        self.logger.error("GPS power-on failed after 3 attempts")
         return False
-    
+
     def _poll_loop(self):
         self.logger.info(f"GPS polling started (every {self._poll_interval}s)")
         while self._running:
@@ -129,9 +169,9 @@ class GPSHandler:
                 f"(failure {self._consecutive_failures}/{self._max_failures})"
             )
             if self._consecutive_failures >= self._max_failures:
-                self.logger.error("GPS module appears unresponsive � check wiring")
+                self.logger.error("GPS module appears unresponsive - check wiring")
                 self._failure_manager.record_failure(
-                    GPSError("GPS module unresponsive � check wiring", critical=True)
+                    GPSError("GPS module unresponsive - check wiring", critical=True)
                 )
             return
 
@@ -149,7 +189,7 @@ class GPSHandler:
             else:
                 self._has_fix = False
                 self.logger.debug("GPS: no fix yet (antenna needs open sky)")
-                
+
     def _parse_cgnsinf(self, response: str) -> Optional[Dict[str, Any]]:
         try:
             for line in response.splitlines():
@@ -185,7 +225,7 @@ class GPSHandler:
         except (IndexError, ValueError) as e:
             self.logger.warning(f"GPS parse error: {e} | response: {response!r}")
             return None
-        
+
     def get_location(self) -> Dict[str, Any]:
         """
         Returns latest GPS location.
@@ -207,4 +247,3 @@ class GPSHandler:
     @property
     def is_enabled(self) -> bool:
         return self._enabled
-    

@@ -57,6 +57,17 @@ class OutputManager:
         self.logger.info("Starting display...")
         self.display.start()
 
+    # ── GPS ───────────────────────────────────────────────────────
+
+    def set_gps_handler(self, gps_handler):
+        """
+        Inject the GPS handler so the GUI GPS indicator reflects the live
+        fix status. The display polls the provided callable on the Qt thread.
+        """
+        self._gps = gps_handler
+        self.display.set_gps_status_provider(lambda: bool(gps_handler.has_fix))
+        self.logger.info("GPS handler attached to OutputManager")
+
     # ── Frame Feeds (dev mode) ────────────────────────────────────
 
     def push_input_frame(self, frame):

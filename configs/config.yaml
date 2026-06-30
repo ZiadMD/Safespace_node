@@ -12,12 +12,12 @@ node:
   lanes: 4                         # Number of lane widgets shown in the dashboard
   default_speed: 120               # Speed (km/h) displayed on startup / after reset
   location:
-    lat: "30.0444"                 # Static GPS fallback when SIM808 has no fix
-    long: "31.2357"
+    lat: "30.610773967468127"                 # Static GPS fallback when SIM808 has no fix
+    long: " 32.28915335581145"
 
 # ── Camera ────────────────────────────────────────────────────────────────────
 camera:
-  model: "imx500-raw"              # Camera mode (see below); default is imx500-raw
+  model: "picam"              # Camera mode (see below); default is imx500-raw
   #   "picam"       - Raspberry Pi camera via picamera2 (no on-chip AI)
   #   "imx500"      - IMX500 on-chip NPU inference (disables software AI)
   #   "imx500-raw"  - IMX500 sensor as plain camera; software AI + RTSP streaming
@@ -29,7 +29,7 @@ camera:
 
   imx500:                          # Used by "imx500" and "imx500-raw" modes
     camera_num: 0                  # Picamera2 camera index for IMX500 hardware
-    model_path: models/Accident_and_fire_detector_imx_model.rpk  # .rpk for "imx500" mode only
+    model_path: models/accidents-pro-imx.rpk  # .rpk for "imx500" mode only
     confidence: 0.5                # Minimum confidence for on-chip detections
     iou_threshold: 0.65            # NMS IOU threshold for on-chip output tensors
     max_detections: 10             # Maximum detections per frame from on-chip NPU

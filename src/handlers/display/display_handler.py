@@ -6,6 +6,7 @@ This is the only class external code needs to import.
 import sys
 from typing import Optional, Callable
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from utils.config import Config
@@ -40,6 +41,10 @@ class DisplayHandler:
         self._app: Optional[QApplication] = None
         self._window: Optional[MainWindow] = None
 
+        # GPS indicator polling (set via set_gps_status_provider)
+        self._gps_status_provider: Optional[Callable[[], bool]] = None
+        self._gps_timer: Optional[QTimer] = None
+
     def start(self):
         """
         Start the Qt event loop.  **Blocks** until the window is closed.
@@ -52,6 +57,14 @@ class DisplayHandler:
             self._window.showFullScreen()
         else:
             self._window.show()
+
+        # Periodically refresh the GPS indicator from the injected provider.
+        # Runs on the Qt thread, so widget updates are safe.
+        if self._gps_status_provider is not None:
+            self._gps_timer = QTimer()
+            self._gps_timer.timeout.connect(self._poll_gps_status)
+            self._gps_timer.start(2000)  # every 2 seconds
+            self._poll_gps_status()      # immediate first update
 
         self.logger.info("Display started")
         self._app.exec()
@@ -87,3 +100,23 @@ class DisplayHandler:
         """Reset all UI elements to default state."""
         if self._window:
             self._window.reset_display()
+
+    # ── GPS indicator ─────────────────────────────────────────────
+
+    def set_gps_status_provider(self, provider: Callable[[], bool]):
+        """Register a callable returning the current GPS fix status.
+        It is polled on the Qt thread to keep the GPS indicator in sync."""
+        self._gps_status_provider = provider
+
+    def update_gps_status(self, has_fix: bool):
+        """Update the GPS fix indicator (thread-safe via window signal)."""
+        if self._window:
+            self._window.update_gps_status(has_fix)
+
+    def _poll_gps_status(self):
+        """Read the provider and push the result to the GPS indicator."""
+        if self._window and self._gps_status_provider is not None:
+            try:
+                self._window.update_gps_status(bool(self._gps_status_provider()))
+            except Exception as e:
+                self.logger.warning(f"GPS status poll failed: {e}")

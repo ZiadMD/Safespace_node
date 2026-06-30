@@ -127,9 +127,12 @@ class SafespaceNode:
                 on_accident_cleared=self.output.clear_accident if self.output else None,
             )
 
-        # Attach GPS to network manager
+        # Attach GPS to network manager (heartbeat coordinates) and to the
+        # output manager (so the GUI GPS indicator reflects live fix status).
         if self.network:
             self.network.set_gps_handler(self.gps)
+        if self.output:
+            self.output.set_gps_handler(self.gps)
 
         # 8. Input Manager (camera or video → buffer)
         self.input = InputManager(
