@@ -49,6 +49,10 @@ class GPSHandler:
         self._max_failures: int = 10
         self._failure_manager = FailureManager()
 
+        # Last location persisted to config (avoids redundant file writes)
+        self._last_saved_lat: Optional[float] = None
+        self._last_saved_long: Optional[float] = None
+
     def start(self):
         if not self._enabled:
             self.logger.info("GPS is disabled in config - skipping")
@@ -179,16 +183,34 @@ class GPSHandler:
         if parsed is None:
             return
 
-        with self._lock:
-            if parsed["fix"]:
+        if parsed["fix"]:
+            with self._lock:
                 self._lat = parsed["lat"]
                 self._long = parsed["long"]
                 self._has_fix = True
                 self._consecutive_failures = 0
-                self.logger.debug(f"GPS fix: lat={self._lat}, long={self._long}")
-            else:
+            # Log the live location and persist it as the config fallback.
+            self.logger.info(f"GPS fix: lat={parsed['lat']}, long={parsed['long']}")
+            self._persist_location(parsed["lat"], parsed["long"])
+        else:
+            with self._lock:
                 self._has_fix = False
-                self.logger.debug("GPS: no fix yet (antenna needs open sky)")
+            self.logger.debug("GPS: no fix yet (antenna needs open sky)")
+
+    def _persist_location(self, lat: float, long: float):
+        """
+        Save the latest fix to the config (node.location) so that if GPS later
+        loses its fix, get_location() falls back to the last known position.
+        Only writes when the location actually changed, to limit file writes.
+        """
+        if lat == self._last_saved_lat and long == self._last_saved_long:
+            return
+        try:
+            if self.config.update_location(lat, long):
+                self._last_saved_lat = lat
+                self._last_saved_long = long
+        except Exception as e:
+            self.logger.warning(f"Failed to save GPS location to config: {e}")
 
     def _parse_cgnsinf(self, response: str) -> Optional[Dict[str, Any]]:
         try:
