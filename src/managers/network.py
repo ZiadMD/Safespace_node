@@ -110,6 +110,9 @@ class NetworkManager:
         # ── Incident tracking ─────────────────────────────────────
         self._active_incident_id: Optional[str] = None
 
+        # ── Registration result (health-gate signal for config restarts) ──
+        self._registration_ok: bool = False
+
     # ══════════════════════════════════════════════════════════════
     # Lifecycle
     # ══════════════════════════════════════════════════════════════
@@ -290,12 +293,15 @@ class NetworkManager:
             resp = requests.post(url, json=payload, timeout=self._timeout)
             if resp.ok:
                 self.logger.info(f"Node registered with Central Unit ({resp.status_code})")
+                self._registration_ok = True
             else:
                 self.logger.warning(
                     f"Node registration failed: {resp.status_code} {resp.text[:200]}"
                 )
+                self._registration_ok = False
         except requests.RequestException as e:
             self.logger.warning(f"Node registration error: {e}")
+            self._registration_ok = False
 
     # ══════════════════════════════════════════════════════════════
     # Accident Reporting
@@ -504,3 +510,8 @@ class NetworkManager:
     @property
     def active_incident_id(self) -> Optional[str]:
         return self._active_incident_id
+
+    @property
+    def registration_ok(self) -> bool:
+        """True if the most recent register_node() call succeeded."""
+        return self._registration_ok

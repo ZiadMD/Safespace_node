@@ -101,6 +101,7 @@ network:
   # Override at runtime with the SERVER_URL env var. No CU IPs are hardcoded anywhere in code.
   server_url: http://192.168.50.1:5000
   ws_path: /ws/nodes                    # Raw WebSocket endpoint (appended to server_url)
+  config_ws_path: /ws/nodes/config      # Dedicated WebSocket for CU-driven config updates
   heartbeat_interval: 5                 # Seconds between heartbeat POSTs
   timeout: 10                           # HTTP / Socket.IO request timeout (seconds)
   accident_cooldown: 1                  # Minimum seconds between duplicate accident reports

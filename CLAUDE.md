@@ -52,7 +52,8 @@ Safespace_node/
 │   │   ├── input.py         InputManager — capture loop
 │   │   ├── output.py        OutputManager — display bridge
 │   │   ├── network.py       NetworkManager — heartbeat + accident + commands
-│   │   └── stream.py        StreamManager — MediaMTX subprocess + StreamHandler
+│   │   ├── stream.py        StreamManager — MediaMTX subprocess + StreamHandler
+│   │   └── config_manager.py ConfigManager — CU-driven config update lifecycle
 │   ├── handlers/
 │   │   ├── camera.py        CameraHandler (picam / imx500 / imx500-raw)
 │   │   ├── stream_handler.py StreamHandler — FrameBuffer → ffmpeg → MediaMTX RTSP
@@ -62,6 +63,7 @@ Safespace_node/
 │   │   ├── model_detection.py ModelDetection — YOLO track(), ONNX letterbox+NMS
 │   │   ├── onnx_model.py    OnnxModel — onnxruntime session wrapper
 │   │   ├── socket.py        SocketHandler — Socket.IO + raw WS
+│   │   ├── config_channel.py ConfigChannelHandler — dedicated WS transport for config.update
 │   │   ├── gps_handler.py   GPSHandler — SIM808 UART polling
 │   │   └── display/
 │   │       ├── display_handler.py  public API (wraps QApplication + MainWindow)
@@ -74,6 +76,7 @@ Safespace_node/
 │   │   ├── config.py        Config — YAML load + dot-notation get/set + env overrides
 │   │   ├── logger.py        Logger — RotatingFileHandler + stdout; call Logger.setup() once
 │   │   ├── constants.py     global constants (API paths, event names, status strings)
+│   │   ├── restart_manager.py restart marker (write/read/clear) + clean re-exec
 │   │   └── failures.py      SafespaceError hierarchy + FailureManager (threshold tracker)
 │   └── test_display.py      manual GUI test — no camera/network needed
 ├── requirements.txt         Pi pip deps (PyQt6 + picamera2 come from apt)
@@ -175,7 +178,8 @@ config.get_bool('display.fullscreen', False)
 | `stream.mediamtx_path` | Full path to the MediaMTX binary |
 | `ai.models.<name>` | `path`, `type`, `confidence`, `enabled`, `target_classes` |
 | `network.server_url` | Central Unit base URL (`http://` or `https://`) |
-| `network.ws_path` | Raw WS endpoint appended to server URL |
+| `network.ws_path` | Raw WS endpoint appended to server URL (commands) |
+| `network.config_ws_path` | Dedicated WS endpoint for CU-driven config updates |
 | `network.accident_cooldown` | Seconds between duplicate accident reports |
 | `gps.port` | UART device, e.g. `/dev/ttyAMA0` |
 | `display.mode` | `"dev"` (video feeds + metrics) or `"prod"` (lanes + speed only) |
@@ -210,6 +214,10 @@ Call `Logger.setup(config.get('logging', {}))` exactly once (done in `SafespaceN
 ### Adding a new WS command
 
 Extend `NetworkManager._on_command()` with a new `elif command_id == "..."` branch. Add the constant to `src/utils/constants.py`.
+
+### CU-driven config updates
+
+The CU pushes a full config replacement over a dedicated WebSocket (`ConfigChannelHandler` + `ConfigManager`), distinct from the command WS. Valid updates are backed up, persisted atomically, and applied via a clean process re-exec (`utils/restart_manager.py`) — never a live in-memory reload. A post-restart health gate decides `config.applied: success` vs. automatic rollback (`rolledback`). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) "CU-driven config updates" for the full message protocol and state machine.
 
 ### IMX500 camera modes
 

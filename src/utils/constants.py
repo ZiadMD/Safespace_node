@@ -56,3 +56,11 @@ BACKEND_LANE_STATUS_MAP = {
 GPS_NO_FIX_LOCATION = {"lat": 0.0, "long": 0.0, "fix": False}
 GPS_FAILURE_TYPE = "gps_failure"
 
+# CU-driven config restart marker — persisted across the re-exec so the next
+# boot can tell a deliberate config-restart apart from a normal boot/crash.
+RESTART_MARKER_PATH = PROJECT_ROOT / ".restart_pending.json"
+
+# Queued config.applied notifications the config channel couldn't deliver
+# because the CU was unreachable — flushed on the next channel reconnect.
+CONFIG_NOTIFY_QUEUE_PATH = PROJECT_ROOT / ".config_notify_queue.json"
+

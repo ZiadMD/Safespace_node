@@ -109,6 +109,11 @@ class Config:
                 
         return value
 
+    @property
+    def config_file_path(self) -> str:
+        """Path to the YAML file this config was loaded from."""
+        return self._config_file
+
     def save_to_file(self, path: str):
         """Save current configuration to YAML file."""
         try:

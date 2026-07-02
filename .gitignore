@@ -75,6 +75,13 @@ auto.crt
 *.log
 logs/
 
+# CU-driven config update runtime state (restart marker, queued
+# notifications, config backup/tmp files)
+.restart_pending.json
+.config_notify_queue.json
+configs/config.yaml.bak
+configs/config.yaml.tmp
+
 # Media files
 *.png
 *.jpg

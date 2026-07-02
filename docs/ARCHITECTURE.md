@@ -25,10 +25,12 @@ SafespaceNode  (src/main.py)
 │       ├── LaneWidget        (N lanes, icon + status label)
 │       ├── SpeedWidget       (speed limit, alert mode)
 │       └── SystemMonitorWidget (CPU/RAM bars, dev mode only)
-└── NetworkManager
-    └── SocketHandler
-        ├── Socket.IO   → emit accident report, receive ACK
-        └── Raw WS      → receive commands (accident-decision)
+├── NetworkManager
+│   └── SocketHandler
+│       ├── Socket.IO   → emit accident report, receive ACK
+│       └── Raw WS      → receive commands (accident-decision)
+└── ConfigManager                           ← CU-driven config updates
+    └── ConfigChannelHandler                dedicated WS, own reconnect/backoff
 ```
 
 ---
@@ -43,6 +45,7 @@ SafespaceNode  (src/main.py)
 | **Heartbeat** | `NetworkManager` | HTTP POST `/api/nodes/heartbeat` every N seconds. Uses a `time.sleep(0.1)` poll loop internally. |
 | **SIOConnect** | `SocketHandler` | Connects the `python-socketio` client in a background thread. |
 | **WSCommandListener** | `SocketHandler` | `websocket-client` event loop; receives server commands; auto-reconnects with exponential backoff (max 30 s). |
+| **ConfigChannelListener** | `ConfigChannelHandler` | Dedicated WS for CU-driven config updates; same reconnect/backoff shape as `WSCommandListener`. |
 | **AccidentReport** *(transient)* | `NetworkManager` | Spawned per confirmed detection after cooldown. Encodes frame → base64 JPEG and emits `node_accident_detected` via Socket.IO. |
 | **RTSPStream** | `StreamHandler` | Pulls frames from `FrameBuffer` at `stream.fps`, pipes raw BGR bytes to ffmpeg stdin; ffmpeg publishes H.264 to MediaMTX. Restarts ffmpeg on crash with exponential backoff (2 s → 30 s). |
 
@@ -154,6 +157,100 @@ node still boots and the network layer keeps reconnecting in the background.
 Alongside it, the same diagnostics module reports which interface/source IP the CU
 route resolves to. The probe and route-resolution live in the diagnostics module
 (single source of truth) — the gate does not duplicate them.
+
+---
+
+## CU-driven config updates
+
+The Central Unit can push a full config replacement over a **dedicated
+WebSocket**, separate from the command WS (`network.ws_path`) and derived
+from the same `network.server_url` origin via `network.config_ws_path`
+(default `/ws/nodes/config`).
+
+```
+src/handlers/config_channel.py   ConfigChannelHandler — transport only,
+                                  mirrors SocketHandler's raw-WS reconnect/
+                                  backoff (1s → 30s, doubling, reset on connect)
+src/managers/config_manager.py   ConfigManager — validate/persist/restart/
+                                  rollback/notify lifecycle
+src/utils/restart_manager.py     restart marker (write/read/clear) + clean
+                                  re-exec (os.execv — same PID, same terminal;
+                                  this repo has no systemd unit / supervisor,
+                                  so re-exec is the only way to guarantee the
+                                  process comes back at all)
+```
+
+### Message protocol
+
+```
+Inbound  config.update  { type, request_id, config_version, config }
+Outbound config.ack     { type, request_id, status: accepted|rejected, reason? }
+Outbound config.applied { type, request_id, config_version, status: success|rolledback, reason? }
+```
+
+### Flow
+
+```
+config.update
+    │
+    ▼
+validate (types/ranges, camera.model ∈ {imx500, imx500-raw, picam})
+    │
+    ├─ invalid → config.ack(rejected, reason) — nothing persisted, no restart
+    │
+    └─ valid → backup current configs/config.yaml (configs/config.yaml.bak)
+               → atomic write of the new config (temp file + os.rename)
+               → config.ack(accepted)
+               → write restart marker (.restart_pending.json:
+                 request_id, new_config_version, previous_config_backup_path,
+                 initiated_by="cu", attempt=1, status="pending")
+               → SafespaceNode.stop() then restart_manager.restart_process()
+                 (os.execv — clean re-exec)
+
+boot after restart
+    │
+    ▼
+main.py reads the marker very early (right after Logger.setup) and logs it.
+ConfigManager (constructed during __init__) takes ownership if
+initiated_by == "cu" (a "debug"-initiated marker — see below — is cleared
+immediately at that early read instead; it has no lifecycle owner).
+    │
+    ▼
+SafespaceNode.start() runs the usual subsystem startup, then — only when
+ConfigManager.has_pending_marker — runs a bounded health gate
+(_run_health_gate(), 15s timeout): input pipeline running AND (if network
+enabled) CU registration succeeded.
+    │
+    ├─ healthy, status=="pending"       → config.applied(success),
+    │                                      clear marker + delete backup
+    ├─ healthy, status=="rolling_back"   → the rollback itself worked, but
+    │                                      the CU's config was never applied:
+    │                                      config.applied(rolledback, reason),
+    │                                      clear marker + delete backup
+    └─ unhealthy
+          ├─ attempt < MAX_RESTART_ATTEMPTS (2) → restore backup, rewrite
+          │    marker (status="rolling_back", attempt+1, failure_reason),
+          │    restart again
+          └─ attempt >= MAX_RESTART_ATTEMPTS    → loop guard: stay on the
+               last-known-good config (already restored during the first
+               rollback), config.applied(rolledback, "attempts exhausted: …"),
+               clear marker + delete backup, no further restart
+```
+
+`config.applied` notifications are persisted (`.config_notify_queue.json`)
+and retried on the next channel reconnect if the CU is unreachable when they
+need to be sent — deliberately unlike accident reports (`SocketHandler.
+emit_accident`), which are dropped silently when Socket.IO is offline. In
+practice the "success" notification is almost always sent this way: the
+health gate on a fresh boot resolves before the config WS finishes its
+handshake, so the first send attempt queues and the flush-on-connect
+delivers it moments later.
+
+The `.restart_pending.json` marker also has a **debug path**, opt-in via
+`SAFESPACE_DEBUG_RESTART=1`: a SIGUSR1 handler in `main.py` writes a marker
+with `initiated_by="debug"` and calls the same clean-restart primitive,
+purely to exercise write-marker → re-exec → boot-detects-marker without a
+CU. It's a diagnostic tool, not part of the CU-driven flow.
 
 ---
 

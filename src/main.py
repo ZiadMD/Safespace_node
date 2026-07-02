@@ -15,12 +15,14 @@ import time
 
 from utils.config import Config
 from utils.logger import Logger
+from utils import restart_manager
 from handlers.frame_buffer import FrameBuffer
 from managers.input import InputManager
 from managers.ai import AIManager
 from managers.output import OutputManager
 from managers.network import NetworkManager
 from managers.stream import StreamManager
+from managers.config_manager import ConfigManager
 from handlers.gps_handler import GPSHandler
 
 
@@ -78,6 +80,25 @@ class SafespaceNode:
         self.logger = Logger("SafespaceNode")
         self.logger.info("Initializing Safespace Node...")
 
+        # Restart-marker detection — must happen as early as possible, right
+        # after logging is up, so we know whether this boot followed a
+        # deliberate CU-driven config restart (vs. a normal boot or crash).
+        m = restart_manager.read_marker()
+        if m:
+            self.logger.info(
+                f"Restarted deliberately into config v{m.get('new_config_version')} "
+                f"(request_id={m.get('request_id')}, initiated_by={m.get('initiated_by')}, "
+                f"attempt={m.get('attempt')}, status={m.get('status')})"
+            )
+            if m.get("initiated_by") == "debug":
+                # Phase 1 self-test marker — no lifecycle owner, clear now.
+                restart_manager.clear_marker()
+            # else: a "cu"-initiated marker stays on disk — ConfigManager
+            # (constructed below) takes ownership and clears/rewrites it
+            # once the post-restart health gate resolves.
+        else:
+            self.logger.debug("Normal startup — no restart marker present")
+
         # Check camera mode — only on-chip IMX500 inference disables software AI
         camera_model = self.config.get('camera.model', 'imx500-raw')
         if camera_model == 'imx500':
@@ -134,6 +155,15 @@ class SafespaceNode:
         if self.output:
             self.output.set_gps_handler(self.gps)
 
+        # 7b. Config Manager (CU-driven config updates over a dedicated WS) —
+        # shares the network on/off switch, since it's CU communication too.
+        self.config_manager = None
+        if enable_network:
+            self.config_manager = ConfigManager(
+                self.config,
+                on_restart_requested=self._restart_for_config_update,
+            )
+
         # 8. Input Manager (camera or video → buffer)
         self.input = InputManager(
             self.config,
@@ -166,6 +196,23 @@ class SafespaceNode:
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
+        # DEBUG (Phase 1 restart-primitive test) — opt-in via
+        # SAFESPACE_DEBUG_RESTART=1. Exercises write-marker -> re-exec ->
+        # boot-detects-marker end-to-end. Remove once the CU-driven config
+        # channel (Phase 2+) supersedes it as the real trigger.
+        if os.environ.get("SAFESPACE_DEBUG_RESTART") == "1":
+            def debug_restart_handler(sig, frame):
+                self.logger.warning("DEBUG: SIGUSR1 received - triggering test restart")
+                restart_manager.write_marker(
+                    new_config_version="debug-test",
+                    previous_config_backup_path="",
+                    initiated_by="debug",
+                )
+                self.stop()
+                restart_manager.restart_process(self.logger)
+            signal.signal(signal.SIGUSR1, debug_restart_handler)
+            self.logger.info("DEBUG restart trigger armed (SIGUSR1)")
+
     def start(self):
         """Start all services and enter the main loop."""
         self.logger.info("Starting Safespace Node...")
@@ -186,6 +233,17 @@ class SafespaceNode:
         # Start network (heartbeats + socket connections)
         if self.network:
             self.network.start()
+
+        # Start the config channel (independent of the command WS/heartbeat)
+        if self.config_manager:
+            self.config_manager.start()
+
+        # Post-restart health gate — only runs when this boot followed a
+        # CU-driven config restart (has_pending_marker is False on a normal
+        # boot, so this is a no-op / zero added delay in the common case).
+        if self.config_manager and self.config_manager.has_pending_marker:
+            healthy, reason = self._run_health_gate()
+            self.config_manager.report_health(healthy, reason)
 
         self.running = True
         self.logger.info("Safespace Node is running.")
@@ -222,6 +280,8 @@ class SafespaceNode:
             self.ai.stop()
         if self.stream:
             self.stream.stop()
+        if self.config_manager:
+            self.config_manager.stop()
         if self.network:
             self.network.stop()
         self.input.stop()
@@ -229,6 +289,37 @@ class SafespaceNode:
             self.gps.stop()
 
         self.logger.info("Safespace Node stopped.")
+
+    def _restart_for_config_update(self):
+        """Callback for ConfigManager: clean shutdown, then re-exec in place."""
+        self.logger.info("Config update triggered restart — shutting down cleanly...")
+        self.stop()
+        restart_manager.restart_process(self.logger)
+
+    def _run_health_gate(self, timeout: float = 15.0):
+        """
+        Concrete post-config-restart health definition:
+            - input pipeline is running (camera/video opened for the
+              configured mode)
+            - if network is enabled, CU registration succeeded
+        Polls up to `timeout` seconds since registration happens
+        asynchronously relative to input startup. Returns (healthy, reason).
+        """
+        self.logger.info("Running post-restart health gate...")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            input_ok = self.input.is_running if self.input else False
+            network_ok = self.network.registration_ok if self.network else True
+            if input_ok and network_ok:
+                return True, ""
+            time.sleep(0.5)
+
+        reasons = []
+        if not (self.input.is_running if self.input else False):
+            reasons.append("input pipeline not running")
+        if self.network and not self.network.registration_ok:
+            reasons.append("CU registration failed")
+        return False, ("; ".join(reasons) or "health gate timed out")
 
     # ── Callbacks ─────────────────────────────────────────────────
 
